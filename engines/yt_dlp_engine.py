@@ -50,10 +50,13 @@ class YtDlpEngine:
             # Configure quality format
             format_selector = self._get_format_selector(quality)
             
+            # Customize filename template
+            filename = '【%(channel)s | tt@%(uploader)s】%(title)s.%(ext)s'
+
             # Setup yt-dlp options
             ydl_opts = {
                 'format': format_selector,
-                'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(output_path, filename),
                 'noplaylist': True,
                 'extractaudio': False,
                 'writesubtitles': False,
