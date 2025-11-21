@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup script for Hikari TikTok Downloader
+Setup script for TTD
 Installs required dependencies and sets up the application
 
 Copyright (C) 2025 Gary19gts
@@ -48,7 +48,7 @@ setup_console_colors()
 
 def install_requirements():
     """Install required packages"""
-    colored_print("🚀 Setting up Hikari TikTok Downloader...")
+    colored_print("🚀 Setting up TTD...")
     colored_print("📦 Installing dependencies...")
     
     try:
@@ -90,7 +90,7 @@ def check_python_version():
 def main():
     """Main setup function"""
     colored_print("=" * 50)
-    colored_print("  Hikari TikTok Downloader Setup")
+    colored_print("  TTD Setup")
     colored_print("  Version: 1.2.0")
     colored_print("  Made by: Gary19gts")
     colored_print("=" * 50)

@@ -1,5 +1,5 @@
 """
-Utility modules for Hikari TikTok Downloader
+Utility modules for TTD
 
 Copyright (C) 2025 Gary19gts
 

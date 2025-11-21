@@ -1,4 +1,4 @@
-# 📖 Hikari TikTok Downloader - Complete Instructions
+# 📖 TTD - Complete Instructions
 
 ## 🚀 Quick Start Guide
 
@@ -236,7 +236,7 @@ Downloaded files are named using:
 ## 🔒 Privacy & Security
 
 ### Data Collection
-Hikari TikTok Downloader:
+TTD:
 - ✅ **Does NOT** collect personal data
 - ✅ **Does NOT** track usage
 - ✅ **Does NOT** send data to external servers
@@ -252,7 +252,7 @@ Hikari TikTok Downloader:
 
 ## 💝 Support the Project
 
-Thank you for using **Hikari TikTok Downloader**!  
+Thank you for using **TTD**!  
 Made with ❤️ by Gary19gts  
 
 If Hikari has been helpful to you, please consider supporting its development:  

@@ -1,4 +1,4 @@
-# Hikari TikTok Downloader Dependencies
+# TTD Dependencies
 
 # GUI Framework
 customtkinter>=5.2.0

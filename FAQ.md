@@ -2,7 +2,7 @@
 
 ## 🔍 General Questions
 
-### Q: What is Hikari TikTok Downloader?
+### Q: What is TTD?
 **A:** Hikari is a modern, user-friendly application that allows you to download TikTok videos to your computer. It features a clean interface with TikTok-themed colors and multiple download engines for maximum compatibility.
 
 ### Q: Is Hikari free to use?
@@ -203,7 +203,7 @@ Under Commercial License: According to your license agreement.
 
 ## 💝 Support the Project
 
-Thank you for using **Hikari TikTok Downloader**!  
+Thank you for using **TTD**!  
 Made with ❤️ by Gary19gts  
 
 If Hikari has been helpful to you, please consider supporting its development:  

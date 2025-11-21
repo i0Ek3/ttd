@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hikari TikTok Downloader Launcher
+TTD Launcher
 Simple launcher script that checks dependencies and runs the application
 
 Copyright (C) 2025 Gary19gts
@@ -101,7 +101,7 @@ def create_directories():
 
 def main():
     """Main launcher function"""
-    colored_print("🚀 Hikari TikTok Downloader Launcher")
+    colored_print("🚀 TTD Launcher")
     colored_print("=" * 40)
     
     # Check Python version
@@ -120,7 +120,7 @@ def main():
         sys.exit(1)
     
     # Launch the application
-    colored_print("\n🎬 Starting Hikari TikTok Downloader...")
+    colored_print("\n🎬 Starting TTD...")
     try:
         from main import HikariTikTokDownloader
         app = HikariTikTokDownloader()

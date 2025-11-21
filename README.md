@@ -1,4 +1,4 @@
-# 🎬 Hikari TikTok Downloader
+# 🎬 TTD
 
 A modern TikTok content downloader with a clean and intuitive interface featuring TikTok-themed design.
 
@@ -147,7 +147,7 @@ hikari-tiktok-downloader/
 
 ## 👨‍💻 Credits
 
-**Hikari TikTok Downloader v1.2.0**  
+**TTD v1.2.0**  
 **October 2025**  
 **Made by: Gary19gts**
 
@@ -163,7 +163,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 💝 Support the Project
 
-Thank you for using **Hikari TikTok Downloader**!  
+Thank you for using **TTD**!  
 Made with ❤️ by Gary19gts  
 
 If Hikari has been helpful to you, please consider supporting its development:  

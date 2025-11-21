@@ -1,5 +1,5 @@
 """
-UI components for Hikari TikTok Downloader
+UI components for TTD
 
 Copyright (C) 2025 Gary19gts
 

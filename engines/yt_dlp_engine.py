@@ -27,12 +27,15 @@ For commercial licensing, contact Gary19gts.
 Author: Gary19gts
 """
 
+import re
 import yt_dlp
 import os
 from pathlib import Path
 import threading
 
 class YtDlpEngine:
+    DEFAULT_FILENAME_TEMPLATE = '【%(channel)s | tt@%(uploader)s】%(title)s'
+
     def __init__(self):
         self.name = "yt-dlp"
         self.description = "Advanced downloader with best compatibility"
@@ -44,19 +47,24 @@ class YtDlpEngine:
         ]
         self.recommended = True
         
-    def download(self, url, output_path, quality="best", progress_callback=None, status_callback=None):
+    def download(self, url, output_path, quality="best", progress_callback=None, status_callback=None, custom_filename=None):
         """Download TikTok content using yt-dlp"""
         try:
             # Configure quality format
             format_selector = self._get_format_selector(quality)
             
             # Customize filename template
-            filename = '【%(channel)s | tt@%(uploader)s】%(title)s.%(ext)s'
+            if custom_filename and custom_filename.strip():
+                safe_filename = custom_filename.strip().replace('|', '_')
+                safe_filename = re.sub(r'[\\/*?:"<>]', "", safe_filename)
+                filename = safe_filename
+            else:
+                filename = self.DEFAULT_FILENAME_TEMPLATE.replace('|', '_')
 
             # Setup yt-dlp options
             ydl_opts = {
                 'format': format_selector,
-                'outtmpl': os.path.join(output_path, filename),
+                'outtmpl': os.path.join(output_path, f'{filename}.%(ext)s'),
                 'noplaylist': True,
                 'extractaudio': False,
                 'writesubtitles': False,
@@ -75,17 +83,24 @@ class YtDlpEngine:
                 
                 # Extract info first to validate
                 info = ydl.extract_info(url, download=False)
-                
+
+                display_name = custom_filename if custom_filename and custom_filename.strip() else self.DEFAULT_FILENAME_TEMPLATE % {
+                    'channel': info.get('channel', 'UnknownChannel'),
+                    'uploader': info.get('uploader', 'UnknownUploader'),
+                    'title': info.get('title', 'UnknownTitle')
+                }
+
                 if status_callback:
-                    status_callback(f"Downloading: {info.get('title', 'Unknown')}")
+                    status_callback(f"Downloading: {display_name}")
                 
                 # Perform actual download
                 ydl.download([url])
                 
+                final_filename = ydl.prepare_filename(info)
                 if status_callback:
                     status_callback("Download completed successfully!")
                 
-                return True, "Download completed successfully"
+                return True, f"Download completed successfully: {os.path.basename(final_filename)}"
                 
         except Exception as e:
             error_msg = f"Download failed: {str(e)}"

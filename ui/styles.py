@@ -75,6 +75,13 @@ class ModernStyle:
         'medium': '0 4px 6px rgba(0,0,0,0.1)',
         'heavy': '0 10px 25px rgba(0,0,0,0.15)'
     }
+
+    TEXTBOX_STYLE = {
+        'fg_color': 'transparent',
+        'border_width': 2,
+        'border_color': "#C6C6C8",
+        'corner_radius': 8
+    }
     
     @classmethod
     def get_button_style(cls, variant='primary'):

@@ -12,7 +12,7 @@ We take security seriously and provide security updates for the following versio
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Hikari TikTok Downloader, please report it responsibly:
+If you discover a security vulnerability in TTD, please report it responsibly:
 
 ### How to Report
 
@@ -47,7 +47,7 @@ Please include the following information in your report:
    - Be cautious with shortened URLs
 
 2. **Keep Software Updated**
-   - Always use the latest version of Hikari TikTok Downloader
+   - Always use the latest version of TTD
    - Keep Python and dependencies updated
    - Regularly update yt-dlp engine
 
@@ -115,6 +115,6 @@ For security-related inquiries:
 
 ---
 
-**Thank you for helping keep Hikari TikTok Downloader secure!**
+**Thank you for helping keep TTD secure!**
 
 *Last updated: October 2025*

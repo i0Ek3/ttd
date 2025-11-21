@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hikari TikTok Downloader
+TTD
 A modern TikTok content downloader with clean UI
 
 Copyright (C) 2025 Gary19gts
@@ -30,6 +30,7 @@ Version: 1.2.0
 Date: October 2025
 """
 
+import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import customtkinter as ctk
@@ -43,6 +44,7 @@ import webbrowser
 from datetime import datetime
 
 # Import downloader engines
+import yt_dlp
 from engines.yt_dlp_engine import YtDlpEngine
 from engines.tiktok_api_engine import TikTokApiEngine
 from ui.components import ModernButton, InfoTooltip, ProgressBar
@@ -58,7 +60,7 @@ class HikariTikTokDownloader:
         
         self.root = ctk.CTk()
         # Set white background
-        self.root.configure(fg_color="white")
+        self.root.configure(fg_color="white", border_color="#C6C6C8")
         
         self.setup_window()
         self.setup_variables()
@@ -67,7 +69,7 @@ class HikariTikTokDownloader:
         
     def setup_window(self):
         """Configure main window"""
-        self.root.title("Hikari TikTok Downloader v1.2.0 - by Gary19gts")
+        self.root.title("TTD - modified by i0Ek3")
         self.root.geometry("720x700")
         self.root.minsize(720, 700)
         
@@ -113,6 +115,7 @@ class HikariTikTokDownloader:
         
         self.output_dir = tk.StringVar(value=last_output_dir)
         self.engine_var = tk.StringVar(value=settings.get("engine", "yt-dlp"))
+        self.video_name_var = tk.StringVar(value="")
         self.quality_var = tk.StringVar(value="best")
         self.progress_var = tk.DoubleVar()
         self.status_var = tk.StringVar(value="Ready")
@@ -145,7 +148,7 @@ class HikariTikTokDownloader:
         # Title
         title_label = ctk.CTkLabel(
             left_frame, 
-            text="Hikari TikTok Downloader",
+            text="TTD",
             font=ctk.CTkFont(size=24, weight="bold")
         )
         title_label.pack(pady=(20, 10))
@@ -168,6 +171,9 @@ class HikariTikTokDownloader:
         
         # Engine Selection
         self.create_engine_section(left_frame)
+
+        # Video Name Input
+        self.create_video_name_section(left_frame)
         
         # Quality Selection
         self.create_quality_section(left_frame)
@@ -245,7 +251,39 @@ class HikariTikTokDownloader:
             command=self.show_engine_info
         )
         info_btn.pack(side="right", padx=(5, 0))
-        
+
+    def create_video_name_section(self, parent):
+        """Create video name input section"""
+        video_name_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        video_name_frame.pack(fill="x", padx=20, pady=(0, 15))
+    
+        video_name_label = ctk.CTkLabel(
+            video_name_frame, 
+            text="Video Name:", 
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        video_name_label.pack(anchor="w")
+    
+        from ui.styles import ModernStyle
+        self.video_name_textbox = ctk.CTkTextbox(
+            video_name_frame,
+            height=50,
+            wrap="word",
+            **ModernStyle.TEXTBOX_STYLE
+        )
+        self.video_name_textbox.pack(fill="x", pady=(5, 0))
+
+        # Initialize text box content
+        self.video_name_textbox.insert("end", self.video_name_var.get())
+
+        # Bind content change event
+        self.video_name_textbox.bind("<<Modified>>", self.on_video_name_change)
+
+    def on_video_name_change(self, event=None):
+        """Synchronize text box content to variable"""
+        content = self.video_name_textbox.get("1.0", "end-1c")
+        self.video_name_var.set(content)
+
     def create_quality_section(self, parent):
         """Create quality selection section"""
         quality_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -458,7 +496,7 @@ class HikariTikTokDownloader:
         
         app_info = ctk.CTkLabel(
             credits_frame,
-            text="Hikari TikTok Downloader\nv1.2.0\nOctober 2025\n\nMade by: Gary19gts",
+            text="TTD\n202511\n\nModified by: i0Ek3",
             font=ctk.CTkFont(size=11),
             text_color="#666666",
             justify="center"
@@ -480,16 +518,92 @@ class HikariTikTokDownloader:
     def on_url_change(self, event=None):
         """Handle URL input change"""
         url = self.url_var.get().strip()
+
+        # Clear the previous video name
+        self.video_name_var.set("")
+
         if url:
             is_valid, message = self.validator.is_valid_tiktok_url(url)
             if is_valid:
                 self.status_indicator.set_status("success", "Content detected")
                 self.logger.info(f"Valid URL detected: {url}")
+
+                # Fetch video info in a separate thread to avoid blocking UI
+                info_thread = threading.Thread(
+                    target=self._fetch_video_info,
+                    args=(url,),
+                    daemon=True
+                )
+                info_thread.start()
             else:
                 self.status_indicator.set_status("error", "No content detected")
                 self.logger.warning(f"Invalid URL: {message}")
         else:
             self.status_indicator.set_status("error", "No content detected")
+    
+    # Fetch video metadata
+    def _fetch_video_info(self, url):
+        """
+        Fetch video metadata using yt-dlp to auto-fill the video name.
+        This method should be called from a thread to avoid freezing the UI.
+        """
+        if not url:
+            return 
+        
+        self.logger.info(f"Fetching video info for URL: {url}")
+
+        current_engine_name = self.engine_var.get()
+        current_engine = self.engines.get(current_engine_name)
+
+        if current_engine_name != 'yt-dlp' or not hasattr(current_engine, 'DEFAULT_FILENAME_TEMPLATE'):
+            self.logger.warning(f"Cannot fetch custom filename template for engine: {current_engine_name}")
+            self.root.after(0, lambda: self._update_video_name_ui(""))
+            return
+        
+        filename_template = current_engine.DEFAULT_FILENAME_TEMPLATE
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+                channel = info.get('channel', 'UnknownChannel')
+                uploader = info.get('uploader', 'UnknownUploader')
+                title = info.get('title', 'UnknownTitle')
+
+                video_name = filename_template % {
+                    'channel': channel,
+                    'uploader': uploader,
+                    'title': title
+                }
+
+                safe_video_name_for_ui = re.sub(r'[\\/*?:"<>]', "", video_name)
+                self.root.after(0, lambda: self._update_video_name_ui(safe_video_name_for_ui))
+                
+        except Exception as e:
+            error_msg = f"Failed to fetch video info: {e}"
+            self.logger.error(error_msg)
+            self.root.after(0, lambda: self._update_video_name_ui(""))
+            self.root.after(0, lambda: self.status_indicator.set_status("error", "Failed to load video info"))
+
+    def _update_video_name_ui(self, video_name):
+        """
+        Safely update the video name input field from any thread.
+        This is the only method that should modify the video_name_var.
+        """
+
+        if video_name:
+            self.video_name_textbox.delete("1.0", "end")
+            self.video_name_textbox.insert("end", video_name)
+            self.status_indicator.set_status("success", "Video info loaded")
+        else:
+            self.video_name_textbox.delete("1.0", "end")
+            self.status_indicator.set_status("error", "No video info available")
     
     def show_engine_info(self):
         """Show engine information tooltip"""
@@ -602,6 +716,8 @@ class HikariTikTokDownloader:
             engine_name = self.engine_var.get()
             engine = self.engines.get(engine_name)
             quality = self.quality_var.get()
+            custom_name = self.video_name_var.get().strip()
+            #custom_video_name = self.video_name_textbox.get("1.0", "end-1c").strip()
             
             self.logger.info(f"Starting download with {engine_name} engine")
             self.logger.info(f"URL: {url}")
@@ -619,7 +735,8 @@ class HikariTikTokDownloader:
             # Perform download
             success, message = engine.download(
                 url, output_path, quality, 
-                progress_callback, status_callback
+                progress_callback, status_callback,
+                custom_filename=custom_name
             )
             
             # Update UI on main thread
@@ -649,7 +766,7 @@ class HikariTikTokDownloader:
     def show_diagnostics(self):
         """Show diagnostics window"""
         diag_window = ctk.CTkToplevel(self.root)
-        diag_window.title("Diagnostics - Hikari TikTok Downloader")
+        diag_window.title("Diagnostics - TTD")
         diag_window.geometry("600x400")
         
         # Log display
@@ -745,7 +862,7 @@ class HikariTikTokDownloader:
         
         dev_info = ctk.CTkLabel(
             dev_frame,
-            text="Gary19gts\nCreator of Hikari TikTok Downloader\n\nThank you for using this application!\nBuilt with passion for the community.",
+            text="Gary19gts\nCreator of TTD\n\nThank you for using this application!\nBuilt with passion for the community.",
             font=ctk.CTkFont(size=12),
             text_color="#666666",
             justify="center"
@@ -926,7 +1043,7 @@ Foundation of this entire application"""
         
     def run(self):
         """Start the application"""
-        self.logger.info("Hikari TikTok Downloader started")
+        self.logger.info("TTD started")
         
         # Save settings when window is closed
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -936,7 +1053,7 @@ Foundation of this entire application"""
     def on_closing(self):
         """Handle application closing"""
         self.save_settings()
-        self.logger.info("Hikari TikTok Downloader closed")
+        self.logger.info("TTD closed")
         self.root.destroy()
 
 if __name__ == "__main__":
