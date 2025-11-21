@@ -24,7 +24,12 @@ python3 main.py
 - Added a customizable "Video Name" input field for video filename editing
   - Video titles will be automatically parsed into the format `【Display Name | tt@Username】Original Video Title` for easy organization and documentation
 
-- [WIP] Automatically paste the TikTok URL into the URL box
+- [WIP]
+  - Automatically paste the TikTok URL into the URL box
+  - Batch download and queue management
+  - UI interface optimization
+  - Compile and package into the corresponding platform-specific executable version
+
 
 
 
