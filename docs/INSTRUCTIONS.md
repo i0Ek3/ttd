@@ -124,7 +124,7 @@ https://m.tiktok.com/v/1234567890.html
 
 ### Quality Settings Guide
 
-Hikari automatically downloads videos in the highest available quality (up to 1080p) to ensure optimal video quality and file size balance. This eliminates the need to choose between different quality options and guarantees you always get the best possible result.
+TTD automatically downloads videos in the highest available quality (up to 1080p) to ensure optimal video quality and file size balance. This eliminates the need to choose between different quality options and guarantees you always get the best possible result.
 
 ---
 
@@ -249,22 +249,3 @@ TTD:
 - Keep the application updated for security patches
 
 ---
-
-## 💝 Support the Project
-
-Thank you for using **TTD**!  
-Made with ❤️ by Gary19gts  
-
-If Hikari has been helpful to you, please consider supporting its development:  
-
-☕ **Buy me a coffee on Ko-fi** → [https://ko-fi.com/gary19gts](https://ko-fi.com/gary19gts)  
-
-✨ Even the smallest donation can bring a big light during these tough times.  
-Even $1 can help more than you think 😀🙏
-
-Thank you so much for standing with me! ✨
-
----
-
-*Last updated: October 2025*  
-*Version: 1.2.0*

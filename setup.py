@@ -1,32 +1,4 @@
 #!/usr/bin/env python3
-"""
-Setup script for TTD
-Installs required dependencies and sets up the application
-
-Copyright (C) 2025 Gary19gts
-
-This program is dual-licensed:
-1. GNU Affero General Public License v3 (AGPLv3) for open source use
-2. Proprietary license for commercial/closed source use
-
-For open source use:
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, contact Gary19gts.
-
-Author: Gary19gts
-"""
 
 import subprocess
 import sys
@@ -91,8 +63,7 @@ def main():
     """Main setup function"""
     colored_print("=" * 50)
     colored_print("  TTD Setup")
-    colored_print("  Version: 1.2.0")
-    colored_print("  Made by: Gary19gts")
+    colored_print("  Made by: Gary19gts, modified by i0Ek3")
     colored_print("=" * 50)
     
     if not check_python_version():

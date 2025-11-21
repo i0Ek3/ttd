@@ -2,32 +2,6 @@
 """
 TTD
 A modern TikTok content downloader with clean UI
-
-Copyright (C) 2025 Gary19gts
-
-This program is dual-licensed:
-1. GNU Affero General Public License v3 (AGPLv3) for open source use
-2. Proprietary license for commercial/closed source use
-
-For open source use:
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, contact Gary19gts.
-
-Author: Gary19gts
-Version: 1.2.0
-Date: October 2025
 """
 
 import re
@@ -69,20 +43,9 @@ class HikariTikTokDownloader:
         
     def setup_window(self):
         """Configure main window"""
-        self.root.title("TTD - modified by i0Ek3")
+        self.root.title("TTD - Modified by i0Ek3")
         self.root.geometry("720x700")
         self.root.minsize(720, 700)
-        
-        # Set window icon
-        try:
-            if os.path.exists("hikari_icon.ico"):
-                self.root.iconbitmap("hikari_icon.ico")
-            elif os.path.exists("hikari_icon.png"):
-                icon_image = Image.open("hikari_icon.png")
-                icon_photo = ImageTk.PhotoImage(icon_image.resize((32, 32)))
-                self.root.iconphoto(True, icon_photo)
-        except Exception:
-            pass  # Continue without icon if there's an error
         
         # Center window
         self.root.update_idletasks()
@@ -446,14 +409,14 @@ class HikariTikTokDownloader:
         
         support_label = ctk.CTkLabel(
             support_frame,
-            text="☕ Support Development",
+            text="👍🏻 Support Development",
             font=ctk.CTkFont(size=16, weight="bold")
         )
         support_label.pack(pady=(20, 8))
         
         support_text = ctk.CTkLabel(
             support_frame,
-            text="If you find Hikari useful, consider\nsupporting its development!",
+            text="If you find TTD useful, consider\nsupporting its development!",
             font=ctk.CTkFont(size=12),
             text_color="#666666",
             justify="center"
@@ -463,14 +426,14 @@ class HikariTikTokDownloader:
         # Ko-fi button
         kofi_btn = ctk.CTkButton(
             support_frame,
-            text="☕ Buy me a coffee on Ko-fi",
+            text="👍🏻 Give me a like on GitHub",
             height=40,
             corner_radius=10,
             fg_color="#FF5E5B",  # Ko-fi red color
             hover_color="#E54B47",
             text_color="white",  # Explicit white text color
             font=ctk.CTkFont(size=13, weight="bold"),
-            command=self.open_kofi
+            command=lambda: webbrowser.open("https://github.com/i0Ek3/ttd")
         )
         kofi_btn.pack(fill="x", padx=18, pady=(0, 15))
         
@@ -496,7 +459,7 @@ class HikariTikTokDownloader:
         
         app_info = ctk.CTkLabel(
             credits_frame,
-            text="TTD\n202511\n\nModified by: i0Ek3",
+            text="Hikari TikTok Downloader - Gary19gts\nTTD - Modified by i0Ek3 (202511)\n",
             font=ctk.CTkFont(size=11),
             text_color="#666666",
             justify="center"
@@ -862,7 +825,7 @@ class HikariTikTokDownloader:
         
         dev_info = ctk.CTkLabel(
             dev_frame,
-            text="Gary19gts\nCreator of TTD\n\nThank you for using this application!\nBuilt with passion for the community.",
+            text="Gary19gts\nCreator of Hikari TikTok Downloader\ni0Ek3\nModified to TTD\n\nThank you for using this application!\nBuilt with passion for the community.",
             font=ctk.CTkFont(size=12),
             text_color="#666666",
             justify="center"
@@ -947,17 +910,7 @@ Foundation of this entire application"""
             command=credits_window.destroy
         )
         close_btn.pack(pady=(10, 0))
-    
-    def open_kofi(self):
-        """Open Ko-fi support page"""
-        kofi_url = "https://ko-fi.com/gary19gts"
-        try:
-            webbrowser.open(kofi_url)
-            self.logger.info("Opened Ko-fi support page")
-        except Exception as e:
-            self.logger.error(f"Failed to open Ko-fi page: {e}")
-            messagebox.showerror("Error", "Could not open Ko-fi page. Please visit: https://ko-fi.com/gary19gts")
-    
+       
     def update_libraries(self):
         """Update libraries automatically"""
         # Show confirmation dialog
