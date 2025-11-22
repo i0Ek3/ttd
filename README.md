@@ -41,7 +41,7 @@ pyinstaller --clean TTD.spec
 - Added a customizable "Video Name" input field for video filename editing
   - Video titles will be automatically parsed into the format `【Display Name | tt@Username】Original Video Title` for easy organization and documentation
 - Automatically paste the TikTok URL into the URL box
-  - ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/main-inter.autopaste.jpg)
+  - ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/autopaste.jpg)
 
 - Compile and package into the corresponding platform-specific executable version
 - [WIP]
