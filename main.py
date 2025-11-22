@@ -4,6 +4,7 @@ TTD
 A modern TikTok content downloader with clean UI
 """
 
+import pyperclip
 import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -39,7 +40,14 @@ class HikariTikTokDownloader:
         self.setup_window()
         self.setup_variables()
         self.setup_engines()
+
+        self.last_clipboard_content = ""
+        self.clipboard_monitor_enabled = True
+        self.clipboard_check_interval = 500
+
         self.create_ui()
+
+        self.root.after(100, self.start_clipboard_monitor)
         
     def setup_window(self):
         """Configure main window"""
@@ -102,7 +110,45 @@ class HikariTikTokDownloader:
         # Create two columns
         self.create_left_column(main_frame)
         self.create_right_column(main_frame)
+
+    def start_clipboard_monitor(self):
+        """
+        Enable clipboard monitoring
+        Use polling to periodically check the clipboard contents
+        """
+        if not self.clipboard_monitor_enabled:
+            return
         
+        try:
+            current_clipboard = pyperclip.paste().strip()
+            if current_clipboard != self.last_clipboard_content:
+                if current_clipboard and self.is_tiktok_url(current_clipboard):
+                    # Automatically paste only when the current URL input box is empty or the content is different
+                    current_url = self.url_var.get().strip()
+                    
+                    if not current_url or current_url != current_clipboard:
+                        self.auto_paste_url(current_clipboard)
+                
+                # Update recorded clipboard content
+                self.last_clipboard_content = current_clipboard
+        
+        except Exception as e:
+            print(f"Clipboard monitoring error: {e}")
+        
+        # Continue monitoring (polling)
+        self.root.after(self.clipboard_check_interval, self.start_clipboard_monitor)
+        
+    def auto_paste_url(self, url):
+        try:
+            self.url_var.set(url)
+            self.on_url_change()
+            self.status_var.set(f"TikTok links detected")
+            self.logger.info(f"Automatically paste TikTok link: {url}")
+            print(f"✅ Automatically paste TikTok link: {url}")
+        except Exception as e:
+            self.logger.error(f"Automatically paste failed: {str(e)}")
+            print(f"❎ Automatically paste failed: {str(e)}")
+
     def create_left_column(self, parent):
         """Create left column with main controls"""
         left_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color="#F8F9FA")
@@ -182,7 +228,44 @@ class HikariTikTokDownloader:
         )
         self.url_entry.pack(fill="x", pady=(5, 0))
         self.url_entry.bind("<KeyRelease>", self.on_url_change)
+
+    @staticmethod
+    def is_tiktok_url(url):
+        """
+        Check if a string is a TikTok link using regular expression.
+        Support formats:
+        - https://www.tiktok.com/@username/video/1234567890
+        - https://tiktok.com/@username/video/1234567890
+        - https://vm.tiktok.com/ZMxxxxxxx/
+        - https://vt.tiktok.com/ZTxxxxxxx/
+        - https://www.tiktok.com/t/ZTxxxxxxx/
+        - https://m.tiktok.com/v/1234567890.html
+        """
+
+        if not url or not isinstance(url, str):
+            return False
         
+        url = url.strip()
+        patterns = [
+            # Standard link: @username/video/num_id
+            r'^https?://(?:www\.|m\.)?tiktok\.com/@[\w.-]+/video/\d+',
+            
+            # Short link: vm.tiktok.com or vt.tiktok.com
+            r'^https?://(?:vm|vt)\.tiktok\.com/[A-Za-z0-9]+',
+            
+            # tShort link: www.tiktok.com/t/
+            r'^https?://(?:www\.)?tiktok\.com/t/[A-Za-z0-9]+',
+            
+            # Mobile-end short link:: m.tiktok.com/v/
+            r'^https?://m\.tiktok\.com/v/\d+(?:\.html)?',
+        ]
+
+        for pattern in patterns:
+            if re.match(pattern, url, re.IGNORECASE):
+                return True
+        
+        return False
+
     def create_engine_section(self, parent):
         """Create engine selection section"""
         engine_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -486,8 +569,7 @@ class HikariTikTokDownloader:
         self.video_name_var.set("")
 
         if url:
-            is_valid, message = self.validator.is_valid_tiktok_url(url)
-            if is_valid:
+            if self.is_tiktok_url(url):
                 self.status_indicator.set_status("success", "Content detected")
                 self.logger.info(f"Valid URL detected: {url}")
 
@@ -500,7 +582,7 @@ class HikariTikTokDownloader:
                 info_thread.start()
             else:
                 self.status_indicator.set_status("error", "No content detected")
-                self.logger.warning(f"Invalid URL: {message}")
+                self.logger.warning(f"Invalid URL format")
         else:
             self.status_indicator.set_status("error", "No content detected")
     
@@ -1005,6 +1087,7 @@ Foundation of this entire application"""
     
     def on_closing(self):
         """Handle application closing"""
+        self.clipboard_monitor_enabled = False
         self.save_settings()
         self.logger.info("TTD closed")
         self.root.destroy()

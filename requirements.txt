@@ -3,6 +3,7 @@
 # GUI Framework
 customtkinter>=5.2.0
 pillow>=10.0.0
+pyperclip>=1.11.0
 
 # Download Engines
 yt-dlp>=2023.10.13
