@@ -1,4 +1,10 @@
 *logs/
 *.log
+
 settings.json
+
 *Downloads/
+
+#
+build/
+dist/

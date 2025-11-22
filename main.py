@@ -27,6 +27,19 @@ from ui.styles import ModernStyle
 from utils.validator import URLValidator
 from utils.logger import Logger
 
+def get_resource_path(relative_path):
+    """
+    Get the absolute path of the resource file
+    Applicable to development environments and PyInstaller packaged environments
+    """
+    try:
+        # PyInstaller creates temporary folder, store path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    return os.path.join(base_path, relative_path)
+
 class HikariTikTokDownloader:
     def __init__(self):
         # Initialize CustomTkinter
@@ -64,18 +77,22 @@ class HikariTikTokDownloader:
     def setup_variables(self):
         """Initialize variables"""
         self.url_var = tk.StringVar()
-        
+
         # Settings file path
-        self.settings_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
-        
+        user_home = Path.home()
+        app_data_dir = user_home / ".ttd"
+        app_data_dir.mkdir(exist_ok=True)
+        self.settings_file = str(app_data_dir / "settings.json")
+
         # Create Downloads folder in program directory (default)
-        self.default_downloads_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Downloads")
+        self.default_downloads_path = str(user_home / "Downloads" / "TTD")
         if not os.path.exists(self.default_downloads_path):
             try:
                 os.makedirs(self.default_downloads_path)
             except Exception:
-                self.default_downloads_path = os.getcwd()  # Fallback to current directory
-        
+                self.default_downloads_path = str(user_home / "Downloads")
+                self.logger.warning(f"Create default download director failed, will use: {self.default_downloads_path}")
+                     
         # Load settings or use defaults
         settings = self.load_settings()
         last_output_dir = settings.get("last_output_dir", self.default_downloads_path)
@@ -90,6 +107,13 @@ class HikariTikTokDownloader:
         self.quality_var = tk.StringVar(value="best")
         self.progress_var = tk.DoubleVar()
         self.status_var = tk.StringVar(value="Ready")
+        
+        self.last_clipboard_content = ""
+        self.clipboard_monitor_enabled = True
+        self.clipboard_check_interval = 500
+        
+        from utils.logger import Logger
+        from utils.validator import URLValidator
         
         self.logger = Logger()
         self.validator = URLValidator()

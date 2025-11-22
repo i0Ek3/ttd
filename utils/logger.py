@@ -10,7 +10,7 @@ from pathlib import Path
 class Logger:
     """Application logger for diagnostics"""
     
-    def __init__(self, log_file="hikari_downloader.log"):
+    def __init__(self, log_file="ttd.log"):
         self.log_file = log_file
         self.setup_logger()
         self.logs = []  # Store logs in memory for UI display
@@ -22,7 +22,7 @@ class Logger:
         log_dir.mkdir(exist_ok=True)
         
         # Setup logger
-        self.logger = logging.getLogger("HikariDownloader")
+        self.logger = logging.getLogger("TTD")
         self.logger.setLevel(logging.DEBUG)
         
         # Clear existing handlers
