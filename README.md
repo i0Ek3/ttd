@@ -22,7 +22,7 @@ python3 main.py
 brew install create-dmg
 pip3 install pyinstaller pyinstaller-hooks-contrib
 
-# 2 Pack
+# 2 Pack (Choose one from three)
 # 2.1 Automatically pack to current architecture
 ./build_macos.sh
 
@@ -42,14 +42,12 @@ pyinstaller --clean TTD.spec
   - Video titles will be automatically parsed into the format `【Display Name | tt@Username】Original Video Title` for easy organization and documentation
 - Automatically paste the TikTok URL into the URL box
   - ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/autopaste.jpg)
-
 - Compile and package into the corresponding platform-specific executable version
-- [WIP]
-  - Batch download and queue management
-  - UI interface optimization
 
+## Todo
 
-
+- Batch download and queue management
+- UI interface optimization
 
 ## License
 

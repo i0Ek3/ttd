@@ -31,7 +31,7 @@ class YtDlpEngine:
             
             # Customize filename template
             if custom_filename and custom_filename.strip():
-                safe_filename = custom_filename.strip().replace('|', '_')
+                safe_filename = custom_filename.strip()
                 safe_filename = re.sub(r'[\\/*?:"<>]', "", safe_filename)
                 filename = safe_filename
             else:
