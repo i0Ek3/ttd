@@ -55,7 +55,7 @@ class ModernStyle:
     TEXTBOX_STYLE = {
         'fg_color': 'transparent',
         'border_width': 2,
-        'border_color': "#C6C6C8",
+        'border_color': "#979DA2",
         'corner_radius': 8
     }
     
