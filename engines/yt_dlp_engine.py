@@ -35,7 +35,7 @@ class YtDlpEngine:
                 safe_filename = re.sub(r'[\\/*?:"<>]', "", safe_filename)
                 filename = safe_filename
             else:
-                filename = self.DEFAULT_FILENAME_TEMPLATE.replace('|', '_')
+                filename = self.DEFAULT_FILENAME_TEMPLATE
 
             # Setup yt-dlp options
             ydl_opts = {

@@ -353,6 +353,8 @@ class HikariTikTokDownloader:
         """Synchronize text box content to variable"""
         content = self.video_name_textbox.get("1.0", "end-1c")
         self.video_name_var.set(content)
+        # Reset the modified flag so the event triggers again on next edit
+        self.video_name_textbox.edit_modified(False)
 
     def create_quality_section(self, parent):
         """Create quality selection section"""
@@ -771,22 +773,26 @@ class HikariTikTokDownloader:
         # Disable download button
         self.download_btn.configure(state="disabled", text="Downloading...")
         
+        # Download logic
+        custom_video_name = self.video_name_textbox.get("1.0", "end-1c").strip()
+        
         # Start download in separate thread
         download_thread = threading.Thread(
             target=self._download_worker,
-            args=(url, output_path),
+            args=(url, output_path, custom_video_name),
             daemon=True
         )
         download_thread.start()
     
-    def _download_worker(self, url, output_path):
+    def _download_worker(self, url, output_path, custom_name):
         """Download worker thread"""
         try:
             engine_name = self.engine_var.get()
             engine = self.engines.get(engine_name)
             quality = self.quality_var.get()
-            custom_name = self.video_name_var.get().strip()
-            #custom_video_name = self.video_name_textbox.get("1.0", "end-1c").strip()
+            
+            # Use the custom name passed from UI thread
+            # custom_name = self.video_name_var.get().strip()
             
             self.logger.info(f"Starting download with {engine_name} engine")
             self.logger.info(f"URL: {url}")

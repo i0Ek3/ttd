@@ -12,6 +12,8 @@ from html import unescape
 from urllib.parse import unquote
 
 class TikTokApiEngine:
+    DEFAULT_FILENAME_TEMPLATE = '【%(channel)s | tt@%(uploader)s】%(title)s'
+
     def __init__(self):
         self.name = "tiktok-api"
         self.description = "Direct API access for faster downloads"
