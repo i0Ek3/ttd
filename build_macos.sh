@@ -69,6 +69,11 @@ fi
 
 echo -e "${GREEN}✓ Application packaged successfully${NC}"
 
+# Step 1.5: Sign application (Required for ARM64/Apple Silicon)
+echo -e "${YELLOW}Step 1.5/3: Signing application...${NC}"
+codesign --force --deep --sign - dist/TTD.app
+echo -e "${GREEN}✓ Application signed successfully${NC}"
+
 # Step 2: Test application
 echo -e "${YELLOW}Step 2/3: Testing application...${NC}"
 echo "You can test the application now: open dist/TTD.app"

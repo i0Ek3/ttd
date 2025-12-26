@@ -18,8 +18,9 @@ class Logger:
     def setup_logger(self):
         """Setup logging configuration"""
         # Create logs directory if it doesn't exist
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
+        user_home = Path.home()
+        log_dir = user_home / ".ttd" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
         
         # Setup logger
         self.logger = logging.getLogger("TTD")
@@ -101,4 +102,4 @@ class Logger:
     
     def get_log_file_path(self):
         """Get path to log file"""
-        return Path("logs") / self.log_file
+        return Path.home() / ".ttd" / "logs" / self.log_file
