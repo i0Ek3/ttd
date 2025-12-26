@@ -17,11 +17,7 @@ cd ttd
 python3 setup.py
 python3 main.py
 
-# Pack
-# 1 Install pack tools
-brew install create-dmg
-pip3 install pyinstaller pyinstaller-hooks-contrib
-
+# Build & Pack
 ./build.sh
 ```
 
@@ -34,11 +30,6 @@ pip3 install pyinstaller pyinstaller-hooks-contrib
 - Automatically paste the TikTok URL into the URL box
   - ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/autopaste.jpg)
 - Compile and package into the corresponding platform-specific executable version
-
-## Todo
-
-- Batch download and queue management
-- UI interface optimization
 
 ## License
 
