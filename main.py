@@ -25,7 +25,13 @@ from engines.tiktok_api_engine import TikTokApiEngine
 from ui.components import ModernButton, InfoTooltip, ProgressBar
 from ui.styles import ModernStyle
 from utils.validator import URLValidator
+from ui.styles import ModernStyle
+from utils.validator import URLValidator
 from utils.logger import Logger
+try:
+    from version import __version__
+except ImportError:
+    __version__ = "1.0.0"
 
 def get_resource_path(relative_path):
     """
@@ -64,7 +70,7 @@ class HikariTikTokDownloader:
         
     def setup_window(self):
         """Configure main window"""
-        self.root.title("TTD - Modified by i0Ek3")
+        self.root.title(f"TTD v{__version__} - Modified by i0Ek3")
         self.root.geometry("720x700")
         self.root.minsize(720, 700)
         

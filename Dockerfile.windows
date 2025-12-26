@@ -1,0 +1,12 @@
+FROM cdrx/pyinstaller-windows:python3
+
+WORKDIR /src
+
+# Copy project files
+COPY . .
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Build with PyInstaller
+CMD ["pyinstaller", "--clean", "--noconfirm", "TTD.spec"]

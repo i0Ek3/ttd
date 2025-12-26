@@ -22,16 +22,7 @@ python3 main.py
 brew install create-dmg
 pip3 install pyinstaller pyinstaller-hooks-contrib
 
-# 2 Pack (Choose one from three)
-# 2.1 Automatically pack to current architecture
-./build_macos.sh
-
-# 2.2 Specify packaging architecture
-./build_macos.sh arm64 # for M chip
-./build_macos.sh x86_64 # for Intel chip
-
-# 2.3 Manually packaging
-pyinstaller --clean TTD.spec
+./build.sh
 ```
 
 

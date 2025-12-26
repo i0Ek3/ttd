@@ -1,5 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+import os
+
+# Add current directory to path to import version.py
+sys.path.append(os.getcwd())
+try:
+    from version import __version__
+except ImportError:
+    __version__ = "1.0.0"
 
 a = Analysis(
     ['main.py'],
@@ -29,7 +38,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch='arm64',
+    target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon=['TTD.icns'],
@@ -48,4 +57,12 @@ app = BUNDLE(
     name='TTD.app',
     icon='TTD.icns',
     bundle_identifier='com.i0ek3.ttd',
+    info_plist={
+        'CFBundleName': 'TTD',
+        'CFBundleDisplayName': 'TikTok Downloader',
+        'CFBundleShortVersionString': __version__,
+        'CFBundleVersion': __version__,
+        'CFBundlePackageType': 'APPL',
+        'NSHighResolutionCapable': True,
+    },
 )
