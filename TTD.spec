@@ -27,6 +27,9 @@ pyz = PYZ(a.pure)
 
 # Determine if we are running on Windows
 is_windows = sys.platform.startswith('win') or os.name == 'nt'
+print(f"DEBUG: sys.platform={sys.platform}")
+print(f"DEBUG: os.name={os.name}")
+print(f"DEBUG: is_windows={is_windows}")
 
 if is_windows:
     exe = EXE(
