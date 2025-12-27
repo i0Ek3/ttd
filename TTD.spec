@@ -25,44 +25,73 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='TTD',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=['TTD.icns'],
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='TTD',
-)
-app = BUNDLE(
-    coll,
-    name='TTD.app',
-    icon='TTD.icns',
-    bundle_identifier='com.i0ek3.ttd',
-    info_plist={
-        'CFBundleName': 'TTD',
-        'CFBundleDisplayName': 'TikTok Downloader',
-        'CFBundleShortVersionString': __version__,
-        'CFBundleVersion': __version__,
-        'CFBundlePackageType': 'APPL',
-        'NSHighResolutionCapable': True,
-    },
-)
+# Determine if we are running on Windows
+is_windows = sys.platform.startswith('win') or os.name == 'nt'
+
+if is_windows:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name='TTD',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon=['TTD.icns'],
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name='TTD',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon=['TTD.icns'],
+    )
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='TTD',
+    )
+    
+    if sys.platform == 'darwin':
+        app = BUNDLE(
+            coll,
+            name='TTD.app',
+            icon='TTD.icns',
+            bundle_identifier='com.i0ek3.ttd',
+            info_plist={
+                'CFBundleName': 'TTD',
+                'CFBundleDisplayName': 'TikTok videos Downloader',
+                'CFBundleShortVersionString': __version__,
+                'CFBundleVersion': __version__,
+                'CFBundlePackageType': 'APPL',
+                'NSHighResolutionCapable': True,
+            },
+        )
+
