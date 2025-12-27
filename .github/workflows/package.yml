@@ -58,14 +58,16 @@ jobs:
             "dist/TTD-$VERSION-macos.dmg" \
             "dist/TTD.app"
 
-      - name: Post-build (Windows Debug)
+      - name: Post-build (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           $VERSION = python -c "from version import __version__; print(__version__)"
-          Write-Host "--- DEBUG: LISTING ALL FILES ---"
-          Get-ChildItem -Path dist -Recurse | Select-Object FullName
+          Write-Host "Listing dist files for verification..."
+          if (Test-Path dist) {
+              Get-ChildItem -Path dist -Recurse | Select-Object FullName
+          }
           
-          Write-Host "--- DEBUG: SEARCHING FOR TTD.EXE ---"
+          Write-Host "Searching for TTD.exe..."
           $EXE_FILE = Get-ChildItem -Path dist -Filter TTD.exe -Recurse | Select-Object -First 1
           
           if ($EXE_FILE) {
