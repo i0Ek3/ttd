@@ -141,7 +141,7 @@ build_linux() {
                 docker run --rm -v "$(pwd)/dist:/app/dist" ttd-linux-builder
                 ;;
             2)
-                echo -e "${GREEN}Tip: Check .github/workflows/package.yml. Push your code to GitHub to get automated builds.${NC}"
+                echo -e "${GREEN}Tip: Check .github/workflows/build.yml. Push your code to GitHub to get automated builds.${NC}"
                 return
                 ;;
             *)
@@ -187,7 +187,7 @@ build_windows() {
                 docker run --rm -v "$(pwd)/dist:/src/dist" ttd-windows-builder
                 ;;
             2)
-                echo -e "${GREEN}Tip: Check .github/workflows/package.yml. Push your code to GitHub to get automated builds.${NC}"
+                echo -e "${GREEN}Tip: Check .github/workflows/build.yml. Push your code to GitHub to get automated builds.${NC}"
                 return
                 ;;
             *)
