@@ -48,7 +48,6 @@ if is_windows:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
-        icon=['TTD.icns'],
     )
 else:
     exe = EXE(
