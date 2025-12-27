@@ -58,20 +58,23 @@ jobs:
             "dist/TTD-$VERSION-macos.dmg" \
             "dist/TTD.app"
 
-      - name: Post-build (Windows)
+      - name: Post-build (Windows Debug)
         if: matrix.os == 'windows-latest'
         run: |
           $VERSION = python -c "from version import __version__; print(__version__)"
-          Write-Host "Searching for TTD.exe in dist folder..."
-          $EXE_PATH = Get-ChildItem -Path dist -Filter TTD.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
-          if ($EXE_PATH) {
-              Write-Host "Found executable at: $EXE_PATH"
-              # Move and rename to dist folder to ensure it matches the artifact path
-              Move-Item -Path "$EXE_PATH" -Destination "dist/TTD-$VERSION-windows.exe" -Force
-              Write-Host "Renamed and moved to: dist/TTD-$VERSION-windows.exe"
+          Write-Host "--- DEBUG: LISTING ALL FILES ---"
+          Get-ChildItem -Path dist -Recurse | Select-Object FullName
+          
+          Write-Host "--- DEBUG: SEARCHING FOR TTD.EXE ---"
+          $EXE_FILE = Get-ChildItem -Path dist -Filter TTD.exe -Recurse | Select-Object -First 1
+          
+          if ($EXE_FILE) {
+              Write-Host "FOUND: $($EXE_FILE.FullName)"
+              $TARGET = "dist/TTD-$VERSION-windows.exe"
+              Move-Item -Path $EXE_FILE.FullName -Destination $TARGET -Force
+              Write-Host "SUCCESS: Moved to $TARGET"
           } else {
-              Write-Error "Could not find TTD.exe in dist folder. Listing all files for debug:"
-              Get-ChildItem -Path . -Recurse | Select-Object FullName
+              Write-Error "ERROR: TTD.exe not found in dist directory!"
               exit 1
           }
 
