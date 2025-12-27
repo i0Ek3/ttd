@@ -32,6 +32,10 @@ print(f"DEBUG: os.name={os.name}")
 print(f"DEBUG: is_windows={is_windows}")
 
 if is_windows:
+    windows_icon = ['TTD.ico'] if os.path.exists('TTD.ico') else []
+    if not windows_icon:
+        print("WARNING: TTD.ico not found. Application will use default icon.")
+        
     exe = EXE(
         pyz,
         a.scripts,
@@ -51,8 +55,13 @@ if is_windows:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
+        icon=windows_icon,
     )
 else:
+    icon_list = ['TTD.icns'] if os.path.exists('TTD.icns') else []
+    if not icon_list:
+        print("WARNING: TTD.icns not found. Linux/Mac build will use default icon.")
+
     exe = EXE(
         pyz,
         a.scripts,
@@ -69,7 +78,7 @@ else:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
-        icon=['TTD.icns'],
+        icon=icon_list,
     )
     coll = COLLECT(
         exe,
