@@ -21,13 +21,11 @@ from datetime import datetime
 # Import downloader engines
 import yt_dlp
 from engines.yt_dlp_engine import YtDlpEngine
-from engines.tiktok_api_engine import TikTokApiEngine
 from ui.components import ModernButton, InfoTooltip, ProgressBar
 from ui.styles import ModernStyle
 from utils.validator import URLValidator
 from ui.styles import ModernStyle
 from utils.validator import URLValidator
-from utils.logger import Logger
 try:
     from version import __version__
 except ImportError:
@@ -108,7 +106,7 @@ class HikariTikTokDownloader:
             last_output_dir = self.default_downloads_path
         
         self.output_dir = tk.StringVar(value=last_output_dir)
-        self.engine_var = tk.StringVar(value=settings.get("engine", "yt-dlp"))
+        self.engine_var = tk.StringVar(value="yt-dlp")
         self.video_name_var = tk.StringVar(value="")
         self.quality_var = tk.StringVar(value="best")
         self.progress_var = tk.DoubleVar()
@@ -127,8 +125,7 @@ class HikariTikTokDownloader:
     def setup_engines(self):
         """Initialize download engines"""
         self.engines = {
-            "yt-dlp": YtDlpEngine(),
-            "tiktok-api": TikTokApiEngine()
+            "yt-dlp": YtDlpEngine()
         }
         
     def create_ui(self):
@@ -310,7 +307,7 @@ class HikariTikTokDownloader:
         self.engine_combo = ctk.CTkComboBox(
             engine_control_frame,
             variable=self.engine_var,
-            values=["yt-dlp", "tiktok-api"],
+            values=["yt-dlp"],
             height=30,
             corner_radius=8,
             state="readonly"
@@ -1031,18 +1028,9 @@ Foundation of this entire application"""
        
     def update_libraries(self):
         """Update libraries automatically"""
-        # Show confirmation dialog
-        result = messagebox.askyesno(
-            "Update Libraries",
-            "This will update all libraries to their latest versions.\n\nThis may take a few minutes. Continue?",
-            icon="question"
-        )
-        
-        if not result:
-            return
-        
         # Disable update button during process
         self.update_btn.configure(state="disabled", text="Updating...")
+        self.status_var.set("Starting library update...")
         
         # Start update in separate thread
         update_thread = threading.Thread(
