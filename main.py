@@ -87,6 +87,7 @@ class HikariTikTokDownloader:
         app_data_dir = user_home / ".ttd"
         app_data_dir.mkdir(exist_ok=True)
         self.settings_file = str(app_data_dir / "settings.json")
+        self.history_file = str(app_data_dir / "download_history.json")
 
         # Create Downloads folder in program directory (default)
         self.default_downloads_path = str(user_home / "Downloads" / "TTD")
@@ -445,9 +446,13 @@ class HikariTikTokDownloader:
         download_frame = ctk.CTkFrame(parent, fg_color="transparent")
         download_frame.pack(fill="x", padx=20, pady=(10, 20))
         
+        # Button container for side-by-side buttons
+        button_container = ctk.CTkFrame(download_frame, fg_color="transparent")
+        button_container.pack(fill="x", pady=(0, 10))
+
         # Main download button
         self.download_btn = ctk.CTkButton(
-            download_frame,
+            button_container,
             text="Download Content",
             height=45,
             corner_radius=12,
@@ -458,7 +463,21 @@ class HikariTikTokDownloader:
             text_color_disabled="white",  # White text when disabled
             command=self.start_download
         )
-        self.download_btn.pack(fill="x", pady=(0, 10))
+        self.download_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        # Download History button
+        self.history_btn = ctk.CTkButton(
+            button_container,
+            text="Download History",
+            height=45,
+            corner_radius=12,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            fg_color="#007AFF",  # Blue color
+            hover_color="#0056CC",
+            text_color="white",
+            command=self.show_download_history
+        )
+        self.history_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
         
         # Update libraries button
         self.update_btn = ctk.CTkButton(
@@ -738,6 +757,45 @@ class HikariTikTokDownloader:
         except Exception as e:
             self.logger.warning(f"Could not save settings: {e}")
     
+    def load_download_history(self):
+        """Load download history from JSON file"""
+        try:
+            if os.path.exists(self.history_file):
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.logger.warning(f"Could not load download history: {e}")
+        return []
+
+    def save_download_history(self, history):
+        """Save download history to JSON file"""
+        try:
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(history, f, indent=2, ensure_ascii=False)
+            self.logger.debug("Download history saved successfully")
+        except Exception as e:
+            self.logger.warning(f"Could not save download history: {e}")
+
+    def add_to_history(self, url):
+        """Add a download record to history"""
+        history = self.load_download_history()
+    
+        # Create new record
+        record = {
+            "id": len(history) + 1,
+            "url": url,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+    
+        # Add to history (most recent first)
+        history.insert(0, record)
+    
+        # Keep only last 100 records
+        history = history[:100]
+    
+        self.save_download_history(history)
+        self.logger.info(f"Added to download history: {url}")
+
     def open_output_folder(self):
         """Open output folder in file explorer"""
         output_path = self.output_dir.get()
@@ -754,6 +812,8 @@ class HikariTikTokDownloader:
     def start_download(self):
         """Start download process"""
         url = self.url_var.get().strip()
+        # Store URL for history recording
+        self.last_download_url = url
         if not url:
             messagebox.showerror("Error", "Please enter a TikTok URL")
             return
@@ -835,6 +895,7 @@ class HikariTikTokDownloader:
             self.status_var.set("Download completed!")
             self.logger.info("Download completed successfully")
             messagebox.showinfo("Success", message)
+            self.add_to_history(self.last_download_url)
         else:
             self.progress_bar.set(0)
             self.status_var.set("Download failed")
@@ -1109,6 +1170,190 @@ Foundation of this entire application"""
         
         self.root.mainloop()
     
+    def show_download_history(self):
+        """Show download history window"""
+        history_window = ctk.CTkToplevel(self.root)
+        history_window.title("Download History")
+        history_window.geometry("700x500")
+        history_window.configure(fg_color="white")
+    
+        # Make window modal
+        history_window.transient(self.root)
+        history_window.grab_set()
+    
+        # Main frame
+        main_frame = ctk.CTkFrame(history_window, fg_color="white")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+    
+        # Title
+        title_label = ctk.CTkLabel(
+            main_frame,
+            text="📚 Download History",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#333333"
+        )
+        title_label.pack(pady=(10, 20))
+    
+        # Scrollable frame for history list
+        scrollable_frame = ctk.CTkScrollableFrame(
+            main_frame, 
+            fg_color="#F8F9FA",
+            corner_radius=10,
+            height=280
+        )
+        scrollable_frame.pack(fill="both", expand=True, padx=10, pady=(0, 15))
+    
+        # Load and display history
+        history = self.load_download_history()
+    
+        if not history:
+            # No history message
+            no_history_label = ctk.CTkLabel(
+                scrollable_frame,
+                text="No download history available",
+                font=ctk.CTkFont(size=14),
+                text_color="#999999"
+            )
+            no_history_label.pack(pady=50)
+        else:
+            # Create header row
+            header_frame = ctk.CTkFrame(scrollable_frame, fg_color="transparent")
+            header_frame.pack(fill="x", padx=15, pady=(10, 5))
+        
+            # Header labels
+            id_header = ctk.CTkLabel(
+                header_frame, text="#", 
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#666666", width=30
+            )
+            id_header.pack(side="left", padx=(0, 10))
+        
+            time_header = ctk.CTkLabel(
+                header_frame, text="Download Time",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#666666", width=120
+            )
+            time_header.pack(side="left", padx=(0, 10))
+        
+            url_header = ctk.CTkLabel(
+                header_frame, text="Download Link",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#666666"
+            )
+            url_header.pack(side="left")
+        
+            # Separator line
+            separator = ctk.CTkFrame(scrollable_frame, height=1, fg_color="#E0E0E0")
+            separator.pack(fill="x", padx=15, pady=(0, 10))
+        
+            # Display history items
+            for i, record in enumerate(history):
+                item_frame = ctk.CTkFrame(scrollable_frame, fg_color="transparent")
+                item_frame.pack(fill="x", padx=15, pady=2)
+            
+                # ID label
+                id_label = ctk.CTkLabel(
+                    item_frame, text=str(record["id"]),
+                    font=ctk.CTkFont(size=11),
+                    text_color="#666666", width=30
+                )
+                id_label.pack(side="left", padx=(0, 10))
+            
+                # Time label
+                time_label = ctk.CTkLabel(
+                    item_frame, text=record["timestamp"],
+                    font=ctk.CTkFont(size=11),
+                    text_color="#666666", width=120
+                )
+                time_label.pack(side="left", padx=(0, 10))
+            
+                # URL button (clickable)
+                url_btn = ctk.CTkButton(
+                    item_frame,
+                    text=record["url"][:50] + "..." if len(record["url"]) > 50 else record["url"],
+                    font=ctk.CTkFont(size=10),
+                    fg_color="transparent",
+                    hover_color="#F0F0F0",
+                    text_color="#007AFF",
+                    anchor="w",
+                    command=lambda url=record["url"]: self.copy_url_to_clipboard(url, history_window)
+                )
+                url_btn.pack(side="left", fill="x", expand=True)
+    
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=10, pady=(0, 10))
+    
+        # Clear history button
+        clear_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Clear History",
+            height=35,
+            corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#007AFF",
+            hover_color="#0056CC",
+            text_color="white",
+            command=lambda: self.clear_download_history(scrollable_frame)
+        )
+        clear_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+    
+        # Close button
+        close_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Close",
+            height=35,
+            corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#007AFF",
+            hover_color="#0056CC",
+            text_color="white",
+            command=history_window.destroy
+        )
+        close_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
+
+    def copy_url_to_clipboard(self, url, window):
+        """Copy URL to clipboard and show confirmation"""
+        try:
+            pyperclip.copy(url)
+            # Show temporary confirmation
+            self.status_var.set("URL copied to clipboard!")
+            window.after(2000, lambda: self.status_var.set("Ready"))
+            self.logger.info(f"URL copied to clipboard: {url}")
+        except Exception as e:
+            self.logger.error(f"Failed to copy URL: {e}")
+            messagebox.showerror("Error", "Failed to copy URL to clipboard")
+
+    def clear_download_history(self, parent_frame):
+        """Clear download history after confirmation"""
+        result = messagebox.askyesno(
+            "Clear History",
+            "Are you sure you want to clear all download history? This action cannot be undone.",
+            icon="warning"
+        )
+    
+        if result:
+            try:
+                self.save_download_history([])
+                # Refresh the display
+                for widget in parent_frame.winfo_children():
+                    widget.destroy()
+            
+                # Show empty state
+                no_history_label = ctk.CTkLabel(
+                    parent_frame,
+                    text="No download history available",
+                    font=ctk.CTkFont(size=14),
+                    text_color="#999999"
+                )
+                no_history_label.pack(pady=50)
+            
+                self.status_var.set("Download history cleared")
+                self.logger.info("Download history cleared")
+            except Exception as e:
+                self.logger.error(f"Failed to clear history: {e}")
+                messagebox.showerror("Error", "Failed to clear download history")
+
     def on_closing(self):
         """Handle application closing"""
         self.clipboard_monitor_enabled = False

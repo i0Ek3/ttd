@@ -1,10 +1,19 @@
 # 🎬 TTD - TikTok videos Downloader
 
-> A modified version of [Hikari TikTok Downloader (made by Gary19gts)](https://github.com/gary19gts/Hikari-TikTok-Downloader).
+> An enhanced version of [Hikari TikTok Downloader (made by Gary19gts)](https://github.com/gary19gts/Hikari-TikTok-Downloader).
+
+| Main Interface                                               | Download History                                             | Auto Paste                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/main.png) | ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/history.png) | ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/autopaste.jpg) |
 
 
 
-![](https://github.com/i0Ek3/ttd/blob/main/screenshots/main-interface.jpg)
+## Features
+
+- Added a customizable "Video Name" input field for video filename editing
+- Added download history feature
+- Automatically paste the TikTok URL into the URL box
+- Compile and package into the corresponding platform-specific executable version
 
 
 
@@ -22,14 +31,6 @@ python3 main.py
 ```
 
 
-
-## Modifications
-
-- Added a customizable "Video Name" input field for video filename editing
-  - Video titles will be automatically parsed into the format `【Display Name | tt@Username】Original Video Title` for easy organization and documentation
-- Automatically paste the TikTok URL into the URL box
-  - ![](https://github.com/i0Ek3/ttd/blob/main/screenshots/autopaste.jpg)
-- Compile and package into the corresponding platform-specific executable version
 
 ## License
 
