@@ -195,7 +195,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           
           cat > release_notes.md << EOF
-          ## 🚀 Release TTD v${VERSION}
+          ## 🚀 TTD v${VERSION}
           
           ### Changes
           ${COMMIT_MSG}
@@ -215,7 +215,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ needs.check-commit.outputs.version }}
-          name: Release TTD v${{ needs.check-commit.outputs.version }}
+          name: Release TTD v${{ steps.version.outputs.version }}
           body_path: release_notes.md
           files: release-files/*
           draft: false
