@@ -180,14 +180,22 @@ jobs:
           echo "📁 Files to be released:"
           ls -lh release-files/
 
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python -c "from version import __version__; print(__version__)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
       - name: Generate release notes
         id: release_notes
         run: |
           COMMIT_MSG="${{ needs.check-commit.outputs.commit_message }}"
-          VERSION="${{ needs.check-commit.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           
           cat > release_notes.md << EOF
-          ## 🚀 Release v${VERSION}
+          ## 🚀 Release TTD v${VERSION}
           
           ### Changes
           ${COMMIT_MSG}
@@ -207,7 +215,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ needs.check-commit.outputs.version }}
-          name: Release v${{ needs.check-commit.outputs.version }}
+          name: Release TTD v${{ needs.check-commit.outputs.version }}
           body_path: release_notes.md
           files: release-files/*
           draft: false
