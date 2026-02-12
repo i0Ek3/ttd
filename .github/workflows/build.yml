@@ -27,13 +27,13 @@ jobs:
           COMMIT_MSG="${{ github.event.head_commit.message }}"
           echo "Commit message: $COMMIT_MSG"
           
-          # 检查是否以 feat: 或 fix: 开头
-          if [[ "$COMMIT_MSG" =~ ^(feat|fix):.* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # 检查是否以 feat:/fix:/chore: 开头
+          if [[ "$COMMIT_MSG" =~ ^(feat|fix|chore):.* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "✅ Build triggered: commit message matches pattern or manual trigger"
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping build: commit message doesn't start with 'feat:' or 'fix:'"
+            echo "⏭️ Skipping build: commit message doesn't start with 'feat:', 'fix:' or 'chore:'"
           fi
           
           # 保存完整的 commit message 用于 release notes
