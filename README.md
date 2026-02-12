@@ -10,10 +10,10 @@
 
 ## Features
 
-- Added a customizable "Video Name" input field for video filename editing
-- Added download history feature
-- Automatically paste the TikTok URL into the URL box
-- Compile and package into the corresponding platform-specific executable version
+- Auto-paste TikTok URL
+- Auto-fetch video title, support title renaming
+- Support viewing download history
+- Provide downloadable versions for different platforms
 
 
 

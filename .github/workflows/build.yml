@@ -2,26 +2,76 @@ name: Package TTD
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
+  check-commit:
+    name: Check Commit Message
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      commit_message: ${{ steps.check.outputs.commit_message }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit message
+        id: check
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+          
+          # 检查是否以 feat: 或 fix: 开头
+          if [[ "$COMMIT_MSG" =~ ^(feat|fix):.* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "✅ Build triggered: commit message matches pattern or manual trigger"
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping build: commit message doesn't start with 'feat:' or 'fix:'"
+          fi
+          
+          # 保存完整的 commit message 用于 release notes
+          echo "commit_message<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        if: steps.check.outputs.should_build == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Get version
+        if: steps.check.outputs.should_build == 'true'
+        id: get_version
+        run: |
+          VERSION=$(python -c "from version import __version__; print(__version__)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
   build:
     name: Build on ${{ matrix.os }}
+    needs: check-commit
+    if: needs.check-commit.outputs.should_build == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: macos-latest
             artifact_name: TTD-macos
-            extension: .dmg
+            file_pattern: '*.dmg'
           - os: windows-latest
             artifact_name: TTD-windows
-            extension: .exe
+            file_pattern: '*.exe'
           - os: ubuntu-latest
             artifact_name: TTD-linux
-            extension: .zip
+            file_pattern: '*.zip'
 
     steps:
       - name: Checkout code
@@ -39,6 +89,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python -c "from version import __version__; print(__version__)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
       - name: Build with PyInstaller
         run: |
           python -m PyInstaller --clean --noconfirm TTD.spec
@@ -47,7 +105,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install create-dmg
-          VERSION=$(python -c "from version import __version__; print(__version__)")
+          VERSION="${{ steps.version.outputs.version }}"
           codesign --force --deep --sign - dist/TTD.app
           create-dmg \
             --volname "TTD $VERSION Installer" \
@@ -61,7 +119,7 @@ jobs:
       - name: Post-build (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          $VERSION = python -c "from version import __version__; print(__version__)"
+          $VERSION = "${{ steps.version.outputs.version }}"
           Write-Host "Listing dist files for verification..."
           if (Test-Path dist) {
               Get-ChildItem -Path dist -Recurse | Select-Object FullName
@@ -83,7 +141,7 @@ jobs:
       - name: Post-build (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          VERSION=$(python -c "from version import __version__; print(__version__)")
+          VERSION="${{ steps.version.outputs.version }}"
           cd dist
           zip -r "TTD-$VERSION-linux.zip" TTD/
           cd ..
@@ -92,7 +150,66 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            dist/*.dmg
-            dist/*.exe
-            dist/*.zip
+          path: dist/${{ matrix.file_pattern }}
+          if-no-files-found: error
+
+  create-release:
+    name: Create GitHub Release
+    needs: [check-commit, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: |
+          echo "📦 Downloaded artifacts:"
+          ls -R artifacts/
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.zip" \) -exec cp {} release-files/ \;
+          echo "📁 Files to be released:"
+          ls -lh release-files/
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          COMMIT_MSG="${{ needs.check-commit.outputs.commit_message }}"
+          VERSION="${{ needs.check-commit.outputs.version }}"
+          
+          cat > release_notes.md << EOF
+          ## 🚀 Release v${VERSION}
+          
+          ### Changes
+          ${COMMIT_MSG}
+          
+          ### 📦 Downloads
+          - **macOS**: TTD-${VERSION}-macos.dmg
+          - **Windows**: TTD-${VERSION}-windows.exe
+          - **Linux**: TTD-${VERSION}-linux.zip
+          
+          ---
+          *Auto-generated from commit: ${{ github.sha }}*
+          EOF
+          
+          cat release_notes.md
+
+      - name: Create or Update Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-commit.outputs.version }}
+          name: Release v${{ needs.check-commit.outputs.version }}
+          body_path: release_notes.md
+          files: release-files/*
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
