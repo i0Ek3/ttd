@@ -194,13 +194,11 @@ jobs:
           COMMIT_MSG="${{ needs.check-commit.outputs.commit_message }}"
           VERSION="${{ steps.version.outputs.version }}"
           
-          cat > release_notes.md << EOF
-          ## 🚀 TTD v${VERSION}
-          
-          ### Changes
+          cat > release_notes.md << EOF         
+          ## Changes
           ${COMMIT_MSG}
           
-          ### 📦 Downloads
+          ## 📦 Downloads
           - **macOS**: TTD-${VERSION}-macos.dmg
           - **Windows**: TTD-${VERSION}-windows.exe
           - **Linux**: TTD-${VERSION}-linux.zip
@@ -214,8 +212,8 @@ jobs:
       - name: Create or Update Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ needs.check-commit.outputs.version }}
-          name: Release TTD v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: TTD v${{ steps.version.outputs.version }}
           body_path: release_notes.md
           files: release-files/*
           draft: false
