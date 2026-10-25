@@ -11,6 +11,8 @@ from tkinter import ttk, filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image, ImageTk
 import threading
+import queue
+import time
 import os
 import sys
 import json
@@ -62,6 +64,17 @@ class HikariTikTokDownloader:
         self.clipboard_monitor_enabled = True
         self.clipboard_check_interval = 500
 
+        # Clipboard polling runs in a background thread (see start_clipboard_monitor)
+        self._clipboard_queue = queue.Queue()
+        self._clipboard_stop = threading.Event()
+        self._clipboard_thread = None
+
+        # Video-info fetch state: the token invalidates results from stale fetches
+        self._fetch_token = 0
+        self._fetching = False
+        self._current_url = ""
+        self._in_name_change = False
+
         self.create_ui()
 
         self.root.after(100, self.start_clipboard_monitor)
@@ -96,7 +109,7 @@ class HikariTikTokDownloader:
                 os.makedirs(self.default_downloads_path)
             except Exception:
                 self.default_downloads_path = str(user_home / "Downloads")
-                self.logger.warning(f"Create default download director failed, will use: {self.default_downloads_path}")
+                print(f"Create default download directory failed, will use: {self.default_downloads_path}")
                      
         # Load settings or use defaults
         settings = self.load_settings()
@@ -141,31 +154,71 @@ class HikariTikTokDownloader:
 
     def start_clipboard_monitor(self):
         """
-        Enable clipboard monitoring
-        Use polling to periodically check the clipboard contents
+        Enable clipboard monitoring.
+
+        The clipboard is polled in a background thread. Calling pyperclip.paste()
+        on the Tk main thread can deadlock/freeze the UI when the clipboard is owned
+        by this very app (e.g. right after copying text out of the Video Name box),
+        because Tk must serve the clipboard request from its own event loop.
         """
         if not self.clipboard_monitor_enabled:
             return
-        
+
+        if self._clipboard_thread is None or not self._clipboard_thread.is_alive():
+            self._clipboard_stop.clear()
+            self._clipboard_thread = threading.Thread(
+                target=self._clipboard_poll_loop, daemon=True
+            )
+            self._clipboard_thread.start()
+
+        self.root.after(self.clipboard_check_interval, self._process_clipboard_queue)
+
+    def _clipboard_poll_loop(self):
+        """Background thread: watch the clipboard, push new TikTok URLs to the queue."""
+        last_seen = self.last_clipboard_content
+        interval = self.clipboard_check_interval / 1000.0
+        while not self._clipboard_stop.is_set():
+            try:
+                content = (pyperclip.paste() or "").strip()
+                if content != last_seen:
+                    last_seen = content
+                    url = self.extract_tiktok_url(content)
+                    if url:
+                        self._clipboard_queue.put((content, url))
+                    else:
+                        self._clipboard_queue.put((content, None))
+            except Exception as e:
+                print(f"Clipboard monitoring error: {e}")
+            self._clipboard_stop.wait(interval)
+
+    def _process_clipboard_queue(self):
+        """Main thread: consume clipboard events produced by the polling thread."""
+        if not self.clipboard_monitor_enabled:
+            return
+
         try:
-            current_clipboard = pyperclip.paste().strip()
-            if current_clipboard != self.last_clipboard_content:
-                if current_clipboard and self.is_tiktok_url(current_clipboard):
-                    # Automatically paste only when the current URL input box is empty or the content is different
+            latest = None
+            while True:
+                try:
+                    latest = self._clipboard_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+            if latest is not None:
+                content, url = latest
+                self.last_clipboard_content = content
+                if url:
                     current_url = self.url_var.get().strip()
-                    
-                    if not current_url or current_url != current_clipboard:
-                        self.auto_paste_url(current_clipboard)
-                
-                # Update recorded clipboard content
-                self.last_clipboard_content = current_clipboard
-        
+                    if not current_url or current_url != url:
+                        self.auto_paste_url(url)
         except Exception as e:
             print(f"Clipboard monitoring error: {e}")
-        
-        # Continue monitoring (polling)
-        self.root.after(self.clipboard_check_interval, self.start_clipboard_monitor)
-        
+
+        try:
+            self.root.after(self.clipboard_check_interval, self._process_clipboard_queue)
+        except tk.TclError:
+            pass  # window already destroyed
+
     def auto_paste_url(self, url):
         try:
             self.url_var.set(url)
@@ -256,6 +309,23 @@ class HikariTikTokDownloader:
         )
         self.url_entry.pack(fill="x", pady=(5, 0))
         self.url_entry.bind("<KeyRelease>", self.on_url_change)
+
+    @staticmethod
+    def extract_tiktok_url(text):
+        """
+        Return the first TikTok link found in text, or None.
+        TikTok's "Share" often copies extra text around the link
+        (e.g. "Check out this video https://vm.tiktok.com/xxx/ #tiktok").
+        """
+        if not text or not isinstance(text, str):
+            return None
+        text = text.strip()
+        # ASCII-only URL characters, so CJK punctuation after the link is not swallowed
+        for m in re.finditer(r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&()*+,;=%]+", text, re.IGNORECASE):
+            candidate = m.group(0).rstrip(".,;:!?)]")
+            if HikariTikTokDownloader.is_tiktok_url(candidate):
+                return candidate
+        return None
 
     @staticmethod
     def is_tiktok_url(url):
@@ -355,10 +425,16 @@ class HikariTikTokDownloader:
 
     def on_video_name_change(self, event=None):
         """Synchronize text box content to variable"""
-        content = self.video_name_textbox.get("1.0", "end-1c")
-        self.video_name_var.set(content)
-        # Reset the modified flag so the event triggers again on next edit
-        self.video_name_textbox.edit_modified(False)
+        if self._in_name_change:
+            return
+        self._in_name_change = True
+        try:
+            content = self.video_name_textbox.get("1.0", "end-1c")
+            self.video_name_var.set(content)
+            # Reset the modified flag so the event triggers again on next edit
+            self.video_name_textbox.edit_modified(False)
+        finally:
+            self._in_name_change = False
 
     def create_quality_section(self, parent):
         """Create quality selection section"""
@@ -611,9 +687,27 @@ class HikariTikTokDownloader:
     # Event handlers and utility methods
     def on_url_change(self, event=None):
         """Handle URL input change"""
-        url = self.url_var.get().strip()
+        raw = self.url_var.get().strip()
+        url = self.extract_tiktok_url(raw) or raw
+
+        # Pasted share text (link + extra words): keep only the link
+        if url != raw and self.is_tiktok_url(url):
+            self.url_var.set(url)
+
+        # KeyRelease fires for every key (Ctrl, arrows...). Don't refetch / wipe the
+        # name if nothing changed, unless the previous fetch ended with no name.
+        if url and url == self._current_url:
+            if self._fetching or self.video_name_textbox.get("1.0", "end-1c").strip():
+                return
+        self._current_url = url
+
+        # Invalidate any in-flight fetch for a previous URL
+        self._fetch_token += 1
+        token = self._fetch_token
+        self._fetching = False
 
         # Clear the previous video name
+        self.video_name_textbox.delete("1.0", "end")
         self.video_name_var.set("")
 
         if url:
@@ -622,9 +716,10 @@ class HikariTikTokDownloader:
                 self.logger.info(f"Valid URL detected: {url}")
 
                 # Fetch video info in a separate thread to avoid blocking UI
+                self._fetching = True
                 info_thread = threading.Thread(
                     target=self._fetch_video_info,
-                    args=(url,),
+                    args=(url, token),
                     daemon=True
                 )
                 info_thread.start()
@@ -633,16 +728,22 @@ class HikariTikTokDownloader:
                 self.logger.warning(f"Invalid URL format")
         else:
             self.status_indicator.set_status("error", "No content detected")
-    
+
     # Fetch video metadata
-    def _fetch_video_info(self, url):
+    def _fetch_video_info(self, url, token=None):
         """
         Fetch video metadata using yt-dlp to auto-fill the video name.
         This method should be called from a thread to avoid freezing the UI.
         """
         if not url:
-            return 
-        
+            return
+
+        def ui(func):
+            try:
+                self.root.after(0, func)
+            except Exception:
+                pass  # window closed
+
         self.logger.info(f"Fetching video info for URL: {url}")
 
         current_engine_name = self.engine_var.get()
@@ -650,54 +751,86 @@ class HikariTikTokDownloader:
 
         if current_engine_name != 'yt-dlp' or not hasattr(current_engine, 'DEFAULT_FILENAME_TEMPLATE'):
             self.logger.warning(f"Cannot fetch custom filename template for engine: {current_engine_name}")
-            self.root.after(0, lambda: self._update_video_name_ui(""))
+            ui(lambda: self._update_video_name_ui("", token))
             return
-        
+
         filename_template = current_engine.DEFAULT_FILENAME_TEMPLATE
 
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
+            'noplaylist': True,
+            'socket_timeout': 15,
         }
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
 
-                channel = info.get('channel', 'UnknownChannel')
-                uploader = info.get('uploader', 'UnknownUploader')
-                title = info.get('title', 'UnknownTitle')
+        max_attempts = 3
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            # Stop early if the URL has changed meanwhile
+            if token is not None and token != self._fetch_token:
+                return
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
 
-                video_name = filename_template % {
-                    'channel': channel,
-                    'uploader': uploader,
-                    'title': title
-                }
+                if info and info.get('entries'):
+                    entries = [e for e in info['entries'] if e]
+                    info = entries[0] if entries else None
+                if not info:
+                    raise ValueError("yt-dlp returned no info")
 
-                safe_video_name_for_ui = re.sub(r'[\\/*?:"<>]', "", video_name)
-                self.root.after(0, lambda: self._update_video_name_ui(safe_video_name_for_ui))
-                
-        except Exception as e:
-            error_msg = f"Failed to fetch video info: {e}"
-            self.logger.error(error_msg)
-            self.root.after(0, lambda: self._update_video_name_ui(""))
-            self.root.after(0, lambda: self.status_indicator.set_status("error", "Failed to load video info"))
+                # Keys may exist with a None value, so use "or" instead of get() defaults
+                uploader = info.get('uploader') or info.get('uploader_id') or 'UnknownUploader'
+                channel = info.get('channel') or uploader or 'UnknownChannel'
+                title = (info.get('title') or info.get('description')
+                         or info.get('id') or 'UnknownTitle')
 
-    def _update_video_name_ui(self, video_name):
+                try:
+                    video_name = filename_template % {
+                        'channel': channel,
+                        'uploader': uploader,
+                        'title': title,
+                        'id': info.get('id') or '',
+                    }
+                except (KeyError, TypeError, ValueError):
+                    video_name = f"{uploader} - {title}"
+
+                video_name = re.sub(r'\s+', ' ', video_name).strip()
+                safe_video_name_for_ui = re.sub(r'[\\/*?:"<>|]', "", video_name)
+                if not safe_video_name_for_ui:
+                    raise ValueError("Empty video name")
+
+                ui(lambda: self._update_video_name_ui(safe_video_name_for_ui, token))
+                return
+
+            except Exception as e:
+                last_error = e
+                self.logger.warning(
+                    f"Fetching video info failed (attempt {attempt}/{max_attempts}): {e}"
+                )
+                if attempt < max_attempts:
+                    time.sleep(attempt)  # 1s, 2s back-off
+
+        self.logger.error(f"Failed to fetch video info: {last_error}")
+        ui(lambda: self._update_video_name_ui("", token))
+
+    def _update_video_name_ui(self, video_name, token=None):
         """
-        Safely update the video name input field from any thread.
-        This is the only method that should modify the video_name_var.
+        Safely update the video name input field (runs on the main thread).
+        Results from outdated fetches (URL changed in the meantime) are ignored.
         """
+        if token is not None and token != self._fetch_token:
+            return
 
+        self._fetching = False
+        self.video_name_textbox.delete("1.0", "end")
         if video_name:
-            self.video_name_textbox.delete("1.0", "end")
             self.video_name_textbox.insert("end", video_name)
             self.status_indicator.set_status("success", "Video info loaded")
         else:
-            self.video_name_textbox.delete("1.0", "end")
             self.status_indicator.set_status("error", "No video info available")
-    
+
     def show_engine_info(self):
         """Show engine information tooltip"""
         engine_name = self.engine_var.get()
@@ -762,10 +895,27 @@ class HikariTikTokDownloader:
         try:
             if os.path.exists(self.history_file):
                 with open(self.history_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    return self._normalize_history(json.load(f))
         except Exception as e:
             self.logger.warning(f"Could not load download history: {e}")
         return []
+
+    @staticmethod
+    def _normalize_history(history):
+        """
+        Make sure every record has a unique integer id (newest = largest).
+        Repairs files written by the old code, where all ids became 101.
+        """
+        if not isinstance(history, list):
+            return []
+        history = [r for r in history if isinstance(r, dict) and r.get("url")]
+        ids = [r.get("id") for r in history]
+        valid = all(isinstance(i, int) for i in ids) and len(set(ids)) == len(ids)
+        if not valid:
+            total = len(history)
+            for idx, record in enumerate(history):  # history is newest first
+                record["id"] = total - idx
+        return history
 
     def save_download_history(self, history):
         """Save download history to JSON file"""
@@ -781,8 +931,11 @@ class HikariTikTokDownloader:
         history = self.load_download_history()
     
         # Create new record
+        # Use max(id) + 1 instead of len(history) + 1: the list is capped at 100
+        # records, so len()+1 would always be 101 once the cap is reached.
+        next_id = max((r.get("id", 0) for r in history), default=0) + 1
         record = {
-            "id": len(history) + 1,
+            "id": next_id,
             "url": url,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
@@ -1253,7 +1406,7 @@ Foundation of this entire application"""
             
                 # ID label
                 id_label = ctk.CTkLabel(
-                    item_frame, text=str(record["id"]),
+                    item_frame, text=str(record.get("id", len(history) - i)),
                     font=ctk.CTkFont(size=11),
                     text_color="#666666", width=30
                 )
@@ -1357,10 +1510,11 @@ Foundation of this entire application"""
     def on_closing(self):
         """Handle application closing"""
         self.clipboard_monitor_enabled = False
+        self._clipboard_stop.set()
         self.save_settings()
         self.logger.info("TTD closed")
         self.root.destroy()
 
 if __name__ == "__main__":
     app = HikariTikTokDownloader()
-    app.run()
+    app.run()
