@@ -771,8 +771,7 @@ class HikariTikTokDownloader:
             if token is not None and token != self._fetch_token:
                 return
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
+                info = current_engine.extract_info(url)
 
                 if info and info.get('entries'):
                     entries = [e for e in info['entries'] if e]
@@ -1265,6 +1264,7 @@ Foundation of this entire application"""
                 "customtkinter",
                 "pillow", 
                 "yt-dlp",
+                "curl_cffi",  # browser impersonation, required for TikTok
                 "requests"
             ]
             

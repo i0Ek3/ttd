@@ -23,6 +23,45 @@ class YtDlpEngine:
         ]
         self.recommended = True
         
+    @staticmethod
+    def _impersonate_opts():
+        """
+        TikTok rejects plain Python requests ("Unexpected response from webpage request").
+        Impersonating a real browser TLS fingerprint needs curl_cffi
+        (pip install -U "yt-dlp[default,curl-cffi]").
+        """
+        try:
+            import curl_cffi  # noqa: F401
+            from yt_dlp.networking.impersonate import ImpersonateTarget
+            return {'impersonate': ImpersonateTarget('chrome')}
+        except Exception:
+            return {}
+
+    def extract_info(self, url, extra_opts=None):
+        """
+        Extract video info, first with browser impersonation, then without.
+        Shared by the UI (Video Name auto-fill) and download().
+        """
+        base = {'quiet': True, 'no_warnings': True, 'noplaylist': True,
+                'socket_timeout': 15}
+        base.update(extra_opts or {})
+        attempts = []
+        imp = self._impersonate_opts()
+        if imp:
+            attempts.append({**base, **imp})
+        attempts.append(base)
+
+        last_error = None
+        for opts in attempts:
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info:
+                        return info
+            except Exception as e:
+                last_error = e
+        raise last_error or RuntimeError("yt-dlp returned no info")
+
     def download(self, url, output_path, quality="best", progress_callback=None, status_callback=None, custom_filename=None):
         """Download TikTok content using yt-dlp"""
         try:
@@ -33,6 +72,7 @@ class YtDlpEngine:
             if custom_filename and custom_filename.strip():
                 safe_filename = custom_filename.strip()
                 safe_filename = re.sub(r'[\\/*?:"<>]', "", safe_filename)
+                safe_filename = safe_filename.replace('%', '%%')  # '%' is special in outtmpl
                 filename = safe_filename
             else:
                 filename = self.DEFAULT_FILENAME_TEMPLATE
@@ -46,6 +86,8 @@ class YtDlpEngine:
                 'writesubtitles': False,
                 'writeautomaticsub': False,
                 'ignoreerrors': False,
+                'socket_timeout': 15,
+                **self._impersonate_opts(),
             }
             
             # Add progress hook if provided
@@ -58,19 +100,19 @@ class YtDlpEngine:
                     status_callback("Extracting video information...")
                 
                 # Extract info first to validate
-                info = ydl.extract_info(url, download=False)
+                info = self.extract_info(url)
 
                 display_name = custom_filename if custom_filename and custom_filename.strip() else self.DEFAULT_FILENAME_TEMPLATE % {
-                    'channel': info.get('channel', 'UnknownChannel'),
-                    'uploader': info.get('uploader', 'UnknownUploader'),
-                    'title': info.get('title', 'UnknownTitle')
+                    'channel': info.get('channel') or info.get('uploader') or 'UnknownChannel',
+                    'uploader': info.get('uploader') or 'UnknownUploader',
+                    'title': info.get('title') or info.get('id') or 'UnknownTitle'
                 }
 
                 if status_callback:
                     status_callback(f"Downloading: {display_name}")
                 
                 # Perform actual download
-                ydl.download([url])
+                ydl.process_ie_result(info, download=True)  # reuse info, no 2nd request
                 
                 final_filename = ydl.prepare_filename(info)
                 if status_callback:
@@ -128,4 +170,4 @@ class YtDlpEngine:
             'description': self.description,
             'advantages': self.advantages,
             'recommended': self.recommended
-        }
+        }
