@@ -28,7 +28,7 @@ jobs:
           COMMIT_MSG="${{ github.event.head_commit.message }}"
           echo "Commit message: $COMMIT_MSG"
           # 修复正则：支持 feat(lib): / fix(core): / chore(ci):
-          if [[ "$COMMIT_MSG" =~ ^(feat|fix|chore)(\([^)]+\))?:.* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "$COMMIT_MSG" =~ ^(feat|fix|chore).* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "✅ Build triggered: commit message matches pattern or manual trigger"
           else
