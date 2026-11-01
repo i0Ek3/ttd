@@ -81,7 +81,7 @@ class HikariTikTokDownloader:
         
     def setup_window(self):
         """Configure main window"""
-        self.root.title(f"TTD v{__version__} - Modified by i0Ek3")
+        self.root.title(f"TTD v{__version__} - i0Ek3")
         self.root.geometry("720x700")
         self.root.minsize(720, 700)
         
@@ -238,7 +238,7 @@ class HikariTikTokDownloader:
         # Title
         title_label = ctk.CTkLabel(
             left_frame, 
-            text="TTD",
+            text="TikTok videos Downloader",
             font=ctk.CTkFont(size=24, weight="bold")
         )
         title_label.pack(pady=(20, 10))
@@ -666,7 +666,7 @@ class HikariTikTokDownloader:
         
         app_info = ctk.CTkLabel(
             credits_frame,
-            text="Hikari TikTok Downloader - Gary19gts\nTTD - Modified by i0Ek3 (202511)\n",
+            text="Original - Gary19gts (Oct 2025)\nTTD - i0Ek3 (Nov 2025)\n",
             font=ctk.CTkFont(size=11),
             text_color="#666666",
             justify="center"
@@ -942,9 +942,7 @@ class HikariTikTokDownloader:
         # Add to history (most recent first)
         history.insert(0, record)
     
-        # Keep only last 100 records
-        history = history[:100]
-    
+        # No cap: the history window is paginated, so keep every record
         self.save_download_history(history)
         self.logger.info(f"Added to download history: {url}")
 
@@ -1323,21 +1321,23 @@ Foundation of this entire application"""
         
         self.root.mainloop()
     
+    HISTORY_PAGE_SIZE = 20
+
     def show_download_history(self):
-        """Show download history window"""
+        """Show download history window (paginated)"""
         history_window = ctk.CTkToplevel(self.root)
         history_window.title("Download History")
-        history_window.geometry("700x500")
+        history_window.geometry("700x560")
         history_window.configure(fg_color="white")
-    
+
         # Make window modal
         history_window.transient(self.root)
         history_window.grab_set()
-    
+
         # Main frame
         main_frame = ctk.CTkFrame(history_window, fg_color="white")
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-    
+
         # Title
         title_label = ctk.CTkLabel(
             main_frame,
@@ -1345,98 +1345,148 @@ Foundation of this entire application"""
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color="#333333"
         )
-        title_label.pack(pady=(10, 20))
-    
+        title_label.pack(pady=(10, 10))
+
         # Scrollable frame for history list
         scrollable_frame = ctk.CTkScrollableFrame(
-            main_frame, 
+            main_frame,
             fg_color="#F8F9FA",
             corner_radius=10,
             height=280
         )
-        scrollable_frame.pack(fill="both", expand=True, padx=10, pady=(0, 15))
-    
-        # Load and display history
-        history = self.load_download_history()
-    
-        if not history:
-            # No history message
-            no_history_label = ctk.CTkLabel(
-                scrollable_frame,
-                text="No download history available",
-                font=ctk.CTkFont(size=14),
-                text_color="#999999"
+        scrollable_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Pagination bar
+        pager_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        pager_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        def make_pager_btn(text, width, command):
+            return ctk.CTkButton(
+                pager_frame, text=text, width=width, height=30, corner_radius=8,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color="#007AFF", hover_color="#0056CC", text_color="white",
+                text_color_disabled="#FFFFFF", command=command
             )
-            no_history_label.pack(pady=50)
-        else:
-            # Create header row
+
+        first_btn = make_pager_btn("«", 40, lambda: goto_page(0))
+        prev_btn = make_pager_btn("‹ Prev", 70, lambda: goto_page(state["page"] - 1))
+        page_label = ctk.CTkLabel(
+            pager_frame, text="", font=ctk.CTkFont(size=12), text_color="#666666"
+        )
+        next_btn = make_pager_btn("Next ›", 70, lambda: goto_page(state["page"] + 1))
+        last_btn = make_pager_btn("»", 40, lambda: goto_page(10 ** 9))
+
+        first_btn.pack(side="left", padx=(0, 5))
+        prev_btn.pack(side="left")
+        last_btn.pack(side="right", padx=(5, 0))
+        next_btn.pack(side="right")
+        page_label.pack(side="left", fill="x", expand=True)
+
+        state = {"page": 0, "history": self.load_download_history()}
+        page_size = self.HISTORY_PAGE_SIZE
+
+        def total_pages():
+            return max(1, (len(state["history"]) + page_size - 1) // page_size)
+
+        def render_page():
+            for widget in scrollable_frame.winfo_children():
+                widget.destroy()
+
+            history = state["history"]
+            pages = total_pages()
+            state["page"] = min(max(state["page"], 0), pages - 1)
+            page = state["page"]
+
+            # Update pager state
+            page_label.configure(
+                text=f"Page {page + 1} / {pages}   ({len(history)} records)"
+            )
+            for btn, enabled in ((first_btn, page > 0), (prev_btn, page > 0),
+                                 (next_btn, page < pages - 1), (last_btn, page < pages - 1)):
+                btn.configure(state="normal" if enabled else "disabled")
+
+            if not history:
+                ctk.CTkLabel(
+                    scrollable_frame,
+                    text="No download history available",
+                    font=ctk.CTkFont(size=14),
+                    text_color="#999999"
+                ).pack(pady=50)
+                return
+
+            # Header row
             header_frame = ctk.CTkFrame(scrollable_frame, fg_color="transparent")
             header_frame.pack(fill="x", padx=15, pady=(10, 5))
-        
-            # Header labels
-            id_header = ctk.CTkLabel(
-                header_frame, text="#", 
+            ctk.CTkLabel(
+                header_frame, text="#",
                 font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#666666", width=30
-            )
-            id_header.pack(side="left", padx=(0, 10))
-        
-            time_header = ctk.CTkLabel(
+                text_color="#666666", width=40
+            ).pack(side="left", padx=(0, 10))
+            ctk.CTkLabel(
                 header_frame, text="Download Time",
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color="#666666", width=120
-            )
-            time_header.pack(side="left", padx=(0, 10))
-        
-            url_header = ctk.CTkLabel(
+            ).pack(side="left", padx=(0, 10))
+            ctk.CTkLabel(
                 header_frame, text="Download Link",
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color="#666666"
-            )
-            url_header.pack(side="left")
-        
-            # Separator line
+            ).pack(side="left")
+
             separator = ctk.CTkFrame(scrollable_frame, height=1, fg_color="#E0E0E0")
             separator.pack(fill="x", padx=15, pady=(0, 10))
-        
-            # Display history items
-            for i, record in enumerate(history):
+
+            # Rows of the current page only
+            start = page * page_size
+            for i, record in enumerate(history[start:start + page_size], start=start):
                 item_frame = ctk.CTkFrame(scrollable_frame, fg_color="transparent")
                 item_frame.pack(fill="x", padx=15, pady=2)
-            
-                # ID label
-                id_label = ctk.CTkLabel(
+
+                ctk.CTkLabel(
                     item_frame, text=str(record.get("id", len(history) - i)),
                     font=ctk.CTkFont(size=11),
-                    text_color="#666666", width=30
-                )
-                id_label.pack(side="left", padx=(0, 10))
-            
-                # Time label
-                time_label = ctk.CTkLabel(
-                    item_frame, text=record["timestamp"],
+                    text_color="#666666", width=40
+                ).pack(side="left", padx=(0, 10))
+
+                ctk.CTkLabel(
+                    item_frame, text=record.get("timestamp", ""),
                     font=ctk.CTkFont(size=11),
                     text_color="#666666", width=120
-                )
-                time_label.pack(side="left", padx=(0, 10))
-            
-                # URL button (clickable)
-                url_btn = ctk.CTkButton(
+                ).pack(side="left", padx=(0, 10))
+
+                url = record["url"]
+                ctk.CTkButton(
                     item_frame,
-                    text=record["url"][:50] + "..." if len(record["url"]) > 50 else record["url"],
+                    text=url[:50] + "..." if len(url) > 50 else url,
                     font=ctk.CTkFont(size=10),
                     fg_color="transparent",
                     hover_color="#F0F0F0",
                     text_color="#007AFF",
                     anchor="w",
-                    command=lambda url=record["url"]: self.copy_url_to_clipboard(url, history_window)
-                )
-                url_btn.pack(side="left", fill="x", expand=True)
-    
+                    command=lambda u=url: self.copy_url_to_clipboard(u, history_window)
+                ).pack(side="left", fill="x", expand=True)
+
+            # Back to the top of the list after switching page
+            try:
+                scrollable_frame._parent_canvas.yview_moveto(0)
+            except Exception:
+                pass
+
+        def goto_page(page):
+            state["page"] = page
+            render_page()
+
+        def on_cleared():
+            state["history"] = []
+            state["page"] = 0
+            render_page()
+
+        render_page()
+
         # Buttons frame
         buttons_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         buttons_frame.pack(fill="x", padx=10, pady=(0, 10))
-    
+
         # Clear history button
         clear_btn = ctk.CTkButton(
             buttons_frame,
@@ -1447,10 +1497,10 @@ Foundation of this entire application"""
             fg_color="#007AFF",
             hover_color="#0056CC",
             text_color="white",
-            command=lambda: self.clear_download_history(scrollable_frame)
+            command=lambda: self.clear_download_history(scrollable_frame, on_cleared)
         )
         clear_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
-    
+
         # Close button
         close_btn = ctk.CTkButton(
             buttons_frame,
@@ -1477,7 +1527,7 @@ Foundation of this entire application"""
             self.logger.error(f"Failed to copy URL: {e}")
             messagebox.showerror("Error", "Failed to copy URL to clipboard")
 
-    def clear_download_history(self, parent_frame):
+    def clear_download_history(self, parent_frame, on_cleared=None):
         """Clear download history after confirmation"""
         result = messagebox.askyesno(
             "Clear History",
@@ -1488,18 +1538,18 @@ Foundation of this entire application"""
         if result:
             try:
                 self.save_download_history([])
-                # Refresh the display
-                for widget in parent_frame.winfo_children():
-                    widget.destroy()
-            
-                # Show empty state
-                no_history_label = ctk.CTkLabel(
-                    parent_frame,
-                    text="No download history available",
-                    font=ctk.CTkFont(size=14),
-                    text_color="#999999"
-                )
-                no_history_label.pack(pady=50)
+                if on_cleared:
+                    # Paginated window re-renders itself (empty state + pager)
+                    on_cleared()
+                else:
+                    for widget in parent_frame.winfo_children():
+                        widget.destroy()
+                    ctk.CTkLabel(
+                        parent_frame,
+                        text="No download history available",
+                        font=ctk.CTkFont(size=14),
+                        text_color="#999999"
+                    ).pack(pady=50)
             
                 self.status_var.set("Download history cleared")
                 self.logger.info("Download history cleared")
@@ -1517,4 +1567,4 @@ Foundation of this entire application"""
 
 if __name__ == "__main__":
     app = HikariTikTokDownloader()
-    app.run()
+    app.run()
