@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 import threading
 import queue
 import time
+import collections
 import os
 import sys
 import json
@@ -72,8 +73,17 @@ class HikariTikTokDownloader:
         # Video-info fetch state: the token invalidates results from stale fetches
         self._fetch_token = 0
         self._fetching = False
+        self._fetch_started = 0.0
         self._current_url = ""
         self._in_name_change = False
+
+        # Auto download state
+        # (a plain bool mirror is used because the clipboard thread must not touch Tk variables)
+        self._auto_download_enabled = bool(self.auto_download_var.get())
+        self._auto_queue = collections.deque()   # links copied while busy
+        self._auto_pending_token = None          # fetch token that should start a download
+        self._downloading = False
+        self._download_is_auto = False
 
         self.create_ui()
 
@@ -81,15 +91,15 @@ class HikariTikTokDownloader:
         
     def setup_window(self):
         """Configure main window"""
-        self.root.title(f"TTD v{__version__} - i0Ek3")
-        self.root.geometry("720x700")
-        self.root.minsize(720, 700)
+        self.root.title(f"TTD v{__version__} by i0Ek3")
+        self.root.geometry("720x680")
+        self.root.minsize(720, 680)
         
         # Center window
         self.root.update_idletasks()
         x = (self.root.winfo_screenwidth() // 2) - (720 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (700 // 2)
-        self.root.geometry(f"720x700+{x}+{y}")
+        y = (self.root.winfo_screenheight() // 2) - (680 // 2)
+        self.root.geometry(f"720x680+{x}+{y}")
         
     def setup_variables(self):
         """Initialize variables"""
@@ -123,6 +133,8 @@ class HikariTikTokDownloader:
         self.engine_var = tk.StringVar(value="yt-dlp")
         self.video_name_var = tk.StringVar(value="")
         self.quality_var = tk.StringVar(value="best")
+        # "Auto Download": start downloading as soon as a link is auto-pasted
+        self.auto_download_var = tk.BooleanVar(value=bool(settings.get("auto_download", False)))
         self.progress_var = tk.DoubleVar()
         self.status_var = tk.StringVar(value="Ready")
         
@@ -177,19 +189,36 @@ class HikariTikTokDownloader:
         """Background thread: watch the clipboard, push new TikTok URLs to the queue."""
         last_seen = self.last_clipboard_content
         interval = self.clipboard_check_interval / 1000.0
+        first_pass = True
         while not self._clipboard_stop.is_set():
             try:
                 content = (pyperclip.paste() or "").strip()
+                # The very first read is whatever was in the clipboard before launch:
+                # it is still pasted into the URL box (as before), but flagged so that
+                # Auto Download does not start a download by itself for it.
+                at_startup = first_pass
+                first_pass = False
                 if content != last_seen:
                     last_seen = content
-                    url = self.extract_tiktok_url(content)
-                    if url:
-                        self._clipboard_queue.put((content, url))
-                    else:
-                        self._clipboard_queue.put((content, None))
+                    self._clipboard_queue.put(
+                        (content, self.extract_tiktok_url(content), at_startup)
+                    )
             except Exception as e:
                 print(f"Clipboard monitoring error: {e}")
             self._clipboard_stop.wait(interval)
+
+    def _is_busy(self):
+        """True while a download runs or the video info of the current link is loading"""
+        if self._downloading:
+            return True
+        if self._fetching:
+            # Watchdog: a fetch that never reports back must not block the monitor forever
+            if time.time() - self._fetch_started > 90:
+                self.logger.warning("Video info fetch timed out, releasing the busy flag")
+                self._fetching = False
+                return False
+            return True
+        return False
 
     def _process_clipboard_queue(self):
         """Main thread: consume clipboard events produced by the polling thread."""
@@ -205,25 +234,40 @@ class HikariTikTokDownloader:
                     break
 
             if latest is not None:
-                content, url = latest
+                content, url, at_startup = latest
                 self.last_clipboard_content = content
                 if url:
                     current_url = self.url_var.get().strip()
                     if not current_url or current_url != url:
-                        self.auto_paste_url(url)
+                        if self._auto_download_enabled and self._is_busy():
+                            # Don't overwrite the URL box mid-download: queue the link
+                            if url not in self._auto_queue:
+                                self._auto_queue.append(url)
+                                self.status_var.set(f"Queued for auto download ({len(self._auto_queue)} waiting)")
+                        else:
+                            self.auto_paste_url(url, auto_start=not at_startup)
+
+            # Links queued while busy are started as soon as the app is idle again,
+            # not only when a download happens to finish.
+            if self._auto_download_enabled and self._auto_queue and not self._is_busy():
+                self.auto_paste_url(self._auto_queue.popleft())
         except Exception as e:
             print(f"Clipboard monitoring error: {e}")
+            self.logger.error(f"Clipboard monitoring error: {e}")
 
         try:
             self.root.after(self.clipboard_check_interval, self._process_clipboard_queue)
         except tk.TclError:
             pass  # window already destroyed
 
-    def auto_paste_url(self, url):
+    def auto_paste_url(self, url, auto_start=True):
         try:
             self.url_var.set(url)
             self.on_url_change()
             self.status_var.set(f"TikTok links detected")
+            if auto_start and self._auto_download_enabled and self._fetching:
+                # Start downloading once the video name has been fetched
+                self._auto_pending_token = self._fetch_token
             self.logger.info(f"Automatically paste TikTok link: {url}")
             print(f"✅ Automatically paste TikTok link: {url}")
         except Exception as e:
@@ -232,14 +276,15 @@ class HikariTikTokDownloader:
 
     def create_left_column(self, parent):
         """Create left column with main controls"""
-        left_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color="#F8F9FA")
+        left_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color="#F8F9FA", width=390)
         left_frame.pack(side="left", fill="both", expand=True, padx=(0, 15))
+        left_frame.pack_propagate(False)
         
         # Title
         title_label = ctk.CTkLabel(
             left_frame, 
-            text="TikTok videos Downloader",
-            font=ctk.CTkFont(size=24, weight="bold")
+            text="TTD: TikTok videos Downloader",
+            font=ctk.CTkFont(size=20, weight="bold")
         )
         title_label.pack(pady=(20, 10))
         
@@ -259,17 +304,17 @@ class HikariTikTokDownloader:
         # URL Input Section
         self.create_url_section(left_frame)
         
-        # Engine Selection
-        self.create_engine_section(left_frame)
+        # Engine + Quality share one row (half width each)
+        self.create_engine_quality_section(left_frame)
 
         # Video Name Input
         self.create_video_name_section(left_frame)
         
-        # Quality Selection
-        self.create_quality_section(left_frame)
-        
         # Output Directory
         self.create_output_section(left_frame)
+
+        # Auto Download checkbox + Update Libraries
+        self.create_options_section(left_frame)
         
         # Download Button
         self.create_download_section(left_frame)
@@ -364,37 +409,52 @@ class HikariTikTokDownloader:
         
         return False
 
-    def create_engine_section(self, parent):
-        """Create engine selection section"""
-        engine_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        engine_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
-        engine_label = ctk.CTkLabel(engine_frame, text="Download Engine:", font=ctk.CTkFont(size=14, weight="bold"))
-        engine_label.pack(anchor="w")
-        
-        engine_control_frame = ctk.CTkFrame(engine_frame, fg_color="transparent")
-        engine_control_frame.pack(fill="x", pady=(5, 0))
-        
-        self.engine_combo = ctk.CTkComboBox(
-            engine_control_frame,
-            variable=self.engine_var,
-            values=["yt-dlp"],
-            height=30,
-            corner_radius=8,
-            state="readonly"
+    def create_engine_quality_section(self, parent):
+        """Create Download Engine and Quality selectors side by side (half width each)"""
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(0, 15))
+        row.grid_columnconfigure(0, weight=1, uniform="eq_q")
+        row.grid_columnconfigure(1, weight=1, uniform="eq_q")
+
+        def build_cell(column, label_text, variable, values, info_command):
+            cell = ctk.CTkFrame(row, fg_color="transparent")
+            cell.grid(row=0, column=column, sticky="ew",
+                      padx=(0, 8) if column == 0 else (8, 0))
+
+            label = ctk.CTkLabel(cell, text=label_text, font=ctk.CTkFont(size=14, weight="bold"))
+            label.pack(anchor="w")
+
+            control_frame = ctk.CTkFrame(cell, fg_color="transparent")
+            control_frame.pack(fill="x", pady=(5, 0))
+
+            combo = ctk.CTkComboBox(
+                control_frame,
+                variable=variable,
+                values=values,
+                width=80,
+                height=30,
+                corner_radius=8,
+                state="readonly"
+            )
+            combo.pack(side="left", fill="x", expand=True)
+
+            info_btn = ctk.CTkButton(
+                control_frame,
+                text="ℹ️",
+                width=30,
+                height=30,
+                corner_radius=15,
+                command=info_command
+            )
+            info_btn.pack(side="right", padx=(5, 0))
+            return combo
+
+        self.engine_combo = build_cell(
+            0, "Download Engine:", self.engine_var, ["yt-dlp"], self.show_engine_info
         )
-        self.engine_combo.pack(side="left", fill="x", expand=True)
-        
-        # Info button for engines
-        info_btn = ctk.CTkButton(
-            engine_control_frame,
-            text="ℹ️",
-            width=30,
-            height=30,
-            corner_radius=15,
-            command=self.show_engine_info
+        self.quality_combo = build_cell(
+            1, "Quality:", self.quality_var, ["best"], self.show_quality_info
         )
-        info_btn.pack(side="right", padx=(5, 0))
 
     def create_video_name_section(self, parent):
         """Create video name input section"""
@@ -436,138 +496,153 @@ class HikariTikTokDownloader:
         finally:
             self._in_name_change = False
 
-    def create_quality_section(self, parent):
-        """Create quality selection section"""
-        quality_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        quality_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
-        quality_label = ctk.CTkLabel(quality_frame, text="Quality:", font=ctk.CTkFont(size=14, weight="bold"))
-        quality_label.pack(anchor="w")
-        
-        quality_control_frame = ctk.CTkFrame(quality_frame, fg_color="transparent")
-        quality_control_frame.pack(fill="x", pady=(5, 0))
-        
-        self.quality_combo = ctk.CTkComboBox(
-            quality_control_frame,
-            variable=self.quality_var,
-            values=["best"],
-            height=30,
+    # Button colours (iOS system palette, like the rest of the UI). Every button has its own
+    # hue so it can be told apart at a glance; red is kept for "off / forbidden" only.
+    #                    (normal,    hover)
+    DOWNLOAD_COLOR = ("#007AFF", "#0056CC")   # blue   - main action
+    HISTORY_COLOR = ("#AF52DE", "#8944AB")    # purple - browse past downloads
+    UPDATE_COLOR = ("#30B0C7", "#258FA3")     # teal   - maintenance
+    AUTO_ON_COLOR = ("#34C759", "#28A745")    # green  - auto download is on
+    AUTO_OFF_COLOR = ("#FF3B30", "#D93025")   # red    - auto download is off
+
+    def create_options_section(self, parent):
+        """Auto Download toggle button and Update Libraries button, side by side"""
+        options_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        options_frame.pack(fill="x", padx=20, pady=(0, 15))
+        # "Auto Download Disabled" is the longest label, so it gets the wider column
+        options_frame.grid_columnconfigure(0, weight=1, uniform="btn")
+        options_frame.grid_columnconfigure(1, weight=1, uniform="btn")
+
+        # Auto Download toggle: same shape/size/font as Update Libraries
+        self.auto_download_btn = ctk.CTkButton(
+            options_frame,
+            text="",
+            width=60,
+            height=38,
             corner_radius=8,
-            state="readonly"
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="white",
+            command=self.on_auto_download_toggle
         )
-        self.quality_combo.pack(side="left", fill="x", expand=True)
-        
-        # Info button for quality
-        quality_info_btn = ctk.CTkButton(
-            quality_control_frame,
-            text="ℹ️",
-            width=30,
-            height=30,
-            corner_radius=15,
-            command=self.show_quality_info
+        self.auto_download_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self._refresh_auto_download_button()
+
+        # Update libraries button
+        self.update_btn = ctk.CTkButton(
+            options_frame,
+            text="Update Libraries",
+            height=38,
+            corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=60,
+            fg_color=self.UPDATE_COLOR[0],
+            hover_color=self.UPDATE_COLOR[1],
+            text_color="white",
+            command=self.update_libraries
         )
-        quality_info_btn.pack(side="right", padx=(5, 0))
-        
+        self.update_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+
+    def _refresh_auto_download_button(self):
+        """Blue 'Enabled' / red 'Disabled' look of the Auto Download button"""
+        if self.auto_download_var.get():
+            fg, hover = self.AUTO_ON_COLOR
+            text = "Auto Download Enabled"
+        else:
+            fg, hover = self.AUTO_OFF_COLOR
+            text = "Auto Download Disabled"
+        self.auto_download_btn.configure(text=text, fg_color=fg, hover_color=hover)
+
+    def on_auto_download_toggle(self):
+        """Button handler: takes effect immediately and is remembered after restart"""
+        enabled = not bool(self.auto_download_var.get())
+        self.auto_download_var.set(enabled)
+        self._auto_download_enabled = enabled
+        if not enabled:
+            self._auto_queue.clear()
+            self._auto_pending_token = None
+        self._refresh_auto_download_button()
+        self.save_settings()
+        self.status_var.set("Auto download enabled" if enabled else "Auto download disabled")
+        self.logger.info(f"Auto download {'enabled' if enabled else 'disabled'}")
+
     def create_output_section(self, parent):
-        """Create output directory section"""
+        """Create output directory section: full-width path box, buttons on the next row"""
         output_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        output_frame.pack(fill="x", padx=20, pady=(0, 15))
+        output_frame.pack(fill="x", padx=20, pady=(0, 26))
         
         output_label = ctk.CTkLabel(output_frame, text="Output Folder:", font=ctk.CTkFont(size=14, weight="bold"))
         output_label.pack(anchor="w")
         
-        output_control_frame = ctk.CTkFrame(output_frame, fg_color="transparent")
-        output_control_frame.pack(fill="x", pady=(5, 0))
-        
+        # Path box: same width as the Video Name box above
         self.output_entry = ctk.CTkEntry(
-            output_control_frame,
+            output_frame,
             textvariable=self.output_dir,
             height=30,
             corner_radius=8
         )
-        self.output_entry.pack(side="left", fill="x", expand=True)
+        self.output_entry.pack(fill="x", pady=(5, 0))
         
-        default_btn = ctk.CTkButton(
-            output_control_frame,
-            text="Default",
-            width=65,
-            height=30,
-            corner_radius=8,
-            command=self.set_default_folder
+        # Open / Browse / Default on their own row, evenly spread over the same width
+        button_row = ctk.CTkFrame(output_frame, fg_color="transparent")
+        button_row.pack(fill="x", pady=(8, 0))
+        for col in range(3):
+            button_row.grid_columnconfigure(col, weight=1, uniform="out_btn")
+
+        buttons = (
+            ("Open", self.open_output_folder),
+            ("Browse", self.browse_output_folder),
+            ("Default", self.set_default_folder),
         )
-        default_btn.pack(side="right", padx=(5, 0))
-        
-        browse_btn = ctk.CTkButton(
-            output_control_frame,
-            text="Browse",
-            width=70,
-            height=30,
-            corner_radius=8,
-            command=self.browse_output_folder
-        )
-        browse_btn.pack(side="right", padx=(5, 0))
-        
-        open_btn = ctk.CTkButton(
-            output_control_frame,
-            text="Open",
-            width=60,
-            height=30,
-            corner_radius=8,
-            command=self.open_output_folder
-        )
-        open_btn.pack(side="right", padx=(5, 0))
+        for col, (text, command) in enumerate(buttons):
+            ctk.CTkButton(
+                button_row,
+                text=text,
+                width=60,
+                height=30,
+                corner_radius=8,
+                command=command
+            ).grid(row=0, column=col, sticky="ew",
+                   padx=(0 if col == 0 else 4, 0 if col == 2 else 4))
         
     def create_download_section(self, parent):
         """Create download button section"""
         download_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        download_frame.pack(fill="x", padx=20, pady=(10, 20))
+        download_frame.pack(fill="x", padx=20, pady=(0, 15))
         
         # Button container for side-by-side buttons
         button_container = ctk.CTkFrame(download_frame, fg_color="transparent")
-        button_container.pack(fill="x", pady=(0, 10))
+        button_container.pack(fill="x", pady=(0, 5))
+        button_container.grid_columnconfigure(0, weight=1, uniform="btn")
+        button_container.grid_columnconfigure(1, weight=1, uniform="btn")
 
         # Main download button
         self.download_btn = ctk.CTkButton(
             button_container,
             text="Download Content",
-            height=45,
-            corner_radius=12,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color="#FF0050",  # TikTok pink
-            hover_color="#E6004A",
+            height=38,
+            corner_radius=8,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=self.DOWNLOAD_COLOR[0],
+            hover_color=self.DOWNLOAD_COLOR[1],
             text_color="white",  # White text color
             text_color_disabled="white",  # White text when disabled
             command=self.start_download
         )
-        self.download_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.download_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
 
         # Download History button
         self.history_btn = ctk.CTkButton(
             button_container,
             text="Download History",
-            height=45,
-            corner_radius=12,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color="#007AFF",  # Blue color
-            hover_color="#0056CC",
+            height=38,
+            corner_radius=8,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=self.HISTORY_COLOR[0],
+            hover_color=self.HISTORY_COLOR[1],
             text_color="white",
             command=self.show_download_history
         )
-        self.history_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
-        
-        # Update libraries button
-        self.update_btn = ctk.CTkButton(
-            download_frame,
-            text="Update Libraries",
-            height=32,
-            corner_radius=8,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#FF0050",  # TikTok Pink
-            hover_color="#E6004A",
-            text_color="white",  # White text color
-            command=self.update_libraries
-        )
-        self.update_btn.pack(fill="x")
+        self.history_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
     
     def create_detector_section(self, parent):
         """Create content detector section"""
@@ -717,6 +792,7 @@ class HikariTikTokDownloader:
 
                 # Fetch video info in a separate thread to avoid blocking UI
                 self._fetching = True
+                self._fetch_started = time.time()
                 info_thread = threading.Thread(
                     target=self._fetch_video_info,
                     args=(url, token),
@@ -830,6 +906,14 @@ class HikariTikTokDownloader:
         else:
             self.status_indicator.set_status("error", "No video info available")
 
+        # Auto download: the link was auto-pasted and its info is ready (or unavailable
+        # - the engine then falls back to its default file name)
+        if (token is not None and token == self._auto_pending_token
+                and self._auto_download_enabled):
+            self._auto_pending_token = None
+            self.status_var.set("Auto download started")
+            self.start_download(auto=True)
+
     def show_engine_info(self):
         """Show engine information tooltip"""
         engine_name = self.engine_var.get()
@@ -872,7 +956,7 @@ class HikariTikTokDownloader:
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
         except Exception as e:
-            self.logger.warning(f"Could not load settings: {e}")
+            print(f"Could not load settings: {e}")
         return {}
     
     def save_settings(self):
@@ -881,7 +965,8 @@ class HikariTikTokDownloader:
             settings = {
                 "last_output_dir": self.output_dir.get(),
                 "engine": self.engine_var.get(),
-                "quality": self.quality_var.get()
+                "quality": self.quality_var.get(),
+                "auto_download": bool(self.auto_download_var.get())
             }
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, indent=2)
@@ -959,19 +1044,32 @@ class HikariTikTokDownloader:
         else:
             messagebox.showerror("Error", "Output folder does not exist")
     
-    def start_download(self):
-        """Start download process"""
+    def start_download(self, auto=False):
+        """Start download process (auto=True when triggered by Auto Download)"""
+        if self._downloading:
+            return
+
         url = self.url_var.get().strip()
         # Store URL for history recording
         self.last_download_url = url
+
+        def fail(title, message):
+            # Auto mode must never block on a dialog before the next queued link
+            if auto:
+                self.status_var.set(message)
+                self.logger.warning(f"Auto download skipped: {message}")
+                self._schedule_next_auto()
+            else:
+                messagebox.showerror(title, message)
+
         if not url:
-            messagebox.showerror("Error", "Please enter a TikTok URL")
+            fail("Error", "Please enter a TikTok URL")
             return
         
         # Validate URL
         is_valid, message = self.validator.is_valid_tiktok_url(url)
         if not is_valid:
-            messagebox.showerror("Invalid URL", message)
+            fail("Invalid URL", message)
             return
         
         # Check output directory
@@ -980,10 +1078,12 @@ class HikariTikTokDownloader:
             try:
                 os.makedirs(output_path)
             except Exception as e:
-                messagebox.showerror("Error", f"Could not create output directory: {e}")
+                fail("Error", f"Could not create output directory: {e}")
                 return
         
         # Disable download button
+        self._downloading = True
+        self._download_is_auto = auto
         self.download_btn.configure(state="disabled", text="Downloading...")
         
         # Download logic
@@ -996,6 +1096,66 @@ class HikariTikTokDownloader:
             daemon=True
         )
         download_thread.start()
+
+        if auto:
+            self.show_auto_download_toast(custom_video_name or url)
+    
+    def show_auto_download_toast(self, detail="", duration_ms=3000):
+        """Small non-blocking popup telling the user an automatic download has started.
+        It closes itself after duration_ms (3 seconds)."""
+        try:
+            toast = ctk.CTkToplevel(self.root)
+            toast.title("Auto Download")
+            toast.resizable(False, False)
+            toast.configure(fg_color="white")
+            toast.transient(self.root)
+            try:
+                toast.attributes("-topmost", True)
+            except Exception:
+                pass
+
+            ctk.CTkLabel(
+                toast,
+                text="⬇️  Auto downloading...",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color="#1C1C1E"
+            ).pack(padx=30, pady=(22, 4))
+
+            if detail:
+                shown = detail if len(detail) <= 60 else detail[:57] + "..."
+                ctk.CTkLabel(
+                    toast,
+                    text=shown,
+                    font=ctk.CTkFont(size=12),
+                    text_color="#666666",
+                    wraplength=320
+                ).pack(padx=30, pady=(0, 6))
+
+            ctk.CTkLabel(
+                toast,
+                text="This window closes automatically.",
+                font=ctk.CTkFont(size=11),
+                text_color="#999999"
+            ).pack(padx=30, pady=(0, 20))
+
+            # Center over the main window
+            toast.update_idletasks()
+            w, h = toast.winfo_reqwidth(), toast.winfo_reqheight()
+            x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+            toast.geometry(f"{w}x{h}+{max(x, 0)}+{max(y, 0)}")
+            toast.lift()
+
+            def close():
+                try:
+                    if toast.winfo_exists():
+                        toast.destroy()
+                except Exception:
+                    pass
+
+            self.root.after(duration_ms, close)
+        except Exception as e:
+            self.logger.warning(f"Could not show auto download notice: {e}")
     
     def _download_worker(self, url, output_path, custom_name):
         """Download worker thread"""
@@ -1038,19 +1198,38 @@ class HikariTikTokDownloader:
     def _download_complete(self, success, message):
         """Handle download completion"""
         # Re-enable download button
+        self._downloading = False
         self.download_btn.configure(state="normal", text="Download Content")
         
         if success:
             self.progress_bar.set(1.0)
             self.status_var.set("Download completed!")
             self.logger.info("Download completed successfully")
-            messagebox.showinfo("Success", message)
             self.add_to_history(self.last_download_url)
+            # Auto downloads finish silently (no modal dialog) so a batch of copied
+            # links keeps flowing; manual downloads still show the dialog.
+            if not self._download_is_auto:
+                messagebox.showinfo("Success", message)
         else:
             self.progress_bar.set(0)
             self.status_var.set("Download failed")
             self.logger.error(f"Download failed: {message}")
             messagebox.showerror("Download Failed", message)
+
+        self._schedule_next_auto()
+
+    def _schedule_next_auto(self):
+        """Continue with the next link copied while the previous one was busy"""
+        if self._auto_download_enabled and self._auto_queue:
+            self.root.after(300, self._start_next_queued)
+
+    def _start_next_queued(self):
+        if not self._auto_download_enabled or not self._auto_queue:
+            return
+        if self._is_busy():
+            self.root.after(1000, self._start_next_queued)  # still busy, try again later
+            return
+        self.auto_paste_url(self._auto_queue.popleft())
     
     def show_diagnostics(self):
         """Show diagnostics window"""
