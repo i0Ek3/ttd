@@ -27,8 +27,13 @@ jobs:
         run: |
           COMMIT_MSG="${{ github.event.head_commit.message }}"
           echo "Commit message: $COMMIT_MSG"
-          # 修复正则：支持 feat(lib): / fix(core): / chore(ci):
-          if [[ "$COMMIT_MSG" =~ ^(feat|fix|chore).* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+
+          # 发版机器人自己推送的 version bump 提交不应再触发一轮构建
+          if [[ "$COMMIT_MSG" == chore\(release\)* ]]; then
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping: release commit pushed by the bot itself"
+          # 支持 feat(lib): / fix(core): / chore(ci):
+          elif [[ "$COMMIT_MSG" =~ ^(feat|fix|chore) ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "✅ Build triggered: commit message matches pattern or manual trigger"
           else
@@ -55,13 +60,23 @@ jobs:
       - name: Calculate next semantic version
         id: semver
         if: steps.check.outputs.should_build == 'true'
+        shell: bash
         run: |
+          set -e  # 不再吞错：版本计算失败时让本步骤直接失败，避免静默跳过 release
           CURRENT=$(python -c "from version import __version__; print(__version__)")
           echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
           echo "Current baseline version: $CURRENT"
 
-          # 计算下一个版本，如果不需要升级输出空字符串
-          NEXT=$(semantic-release print-version --no-vcs-release 2>/dev/null || echo "")
+          # 新版 PSR 用 `version --print` 计算下一个版本（旧的 print-version 子命令
+          # 已废弃/移除，且 --no-vcs-release 只是 version 子命令的选项）。
+          # --print 只输出结果、不做任何修改；无版本变更时会打印当前版本，
+          # 所以与 CURRENT 比较即可判断是否需要发版。
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # 手动触发时强制 patch 升级，否则纯 chore 提交手动触发也算不出新版本
+            NEXT=$(semantic-release version --patch --print --no-commit --no-tag --no-changelog --no-vcs-release --skip-build)
+          else
+            NEXT=$(semantic-release version --print --no-commit --no-tag --no-changelog --no-vcs-release --skip-build)
+          fi
           echo "Calculated next version: '$NEXT'"
 
           if [[ -n "$NEXT" && "$NEXT" != "$CURRENT" ]]; then
@@ -123,7 +138,7 @@ jobs:
           path = pathlib.Path("version.py")
           text = path.read_text(encoding="utf-8")
           new_text, count = re.subn(
-              r"^__version__\s*=\s*['\"][^'\"]*['\"]",
+              r"^__version__\s*=\s*['\"[^'\"]*['\"]",
               f'__version__ = "{version}"',
               text,
               flags=re.M,
@@ -144,14 +159,7 @@ jobs:
           brew install create-dmg
           VERSION="${{ steps.version.outputs.version }}"
           codesign --force --deep --sign - dist/TTD.app
-          create-dmg \
-            --volname "TTD $VERSION Installer" \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --icon "TTD.app" 200 190 \
-            --app-drop-link 600 185 \
-            "dist/TTD-$VERSION-macos.dmg" \
-            "dist/TTD.app"
+          create-dmg             --volname "TTD $VERSION Installer"             --window-size 800 400             --icon-size 100             --icon "TTD.app" 200 190             --app-drop-link 600 185             "dist/TTD-$VERSION-macos.dmg"             "dist/TTD.app"
 
       - name: Post-build (Windows)
         if: matrix.os == 'windows-latest'
@@ -227,34 +235,31 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install semantic‑release
+      - name: Install semantic-release
         run: |
           pip install python-semantic-release
 
-      - name: Run semantic‑release (update version.py, changelog, commit & tag)
+      - name: Run semantic-release (stamp version, changelog, commit & tag locally)
         id: semrel
         run: |
-          semantic-release version --no-push
-          semantic-release changelog
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # commit_version_number = true：该命令一次性完成
+          # 写入 version.py → 更新 CHANGELOG.md → 创建 release 提交 → 打 tag（均在本地）。
+          # --no-push 只做到本地为止，推送交给下面两步；
+          # --skip-build 因为本项目用 PyInstaller 打包，而非 python -m build。
+          semantic-release version --no-push --skip-build
 
           NEW_VER="${{ needs.check-commit.outputs.new_version }}"
-          echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
-
-          git config --global user.name "github‑actions[bot]"
-          git config --global user.email "github‑actions[bot]@users.noreply.github.com"
-
-          git add version.py CHANGELOG.md
-          git commit -m "chore(release): bump version ${NEW_VER}"
-          git tag "v${NEW_VER}"
-
-          # 推送版本提交与tag回远端仓库
           git push origin HEAD:${{ github.ref_name }}
           git push origin "v${NEW_VER}"
 
       - name: Generate release notes markdown
         id: release_notes
+        env:
+          NEW_VER: ${{ needs.check-commit.outputs.new_version }}
         run: |
-          NEW_VER="${{ needs.check-commit.outputs.new_version }}"
           cat > release_notes.md << EOF
           ## Changes (v${NEW_VER})
 
@@ -266,12 +271,12 @@ jobs:
           - **Linux**: TTD-${NEW_VER}-linux.zip
 
           ---
-          *Auto‑generated release from GitHub Actions*
+          *Auto-generated release from GitHub Actions*
           EOF
           cat release_notes.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.check-commit.outputs.new_version }}
           name: TTD v${{ needs.check-commit.outputs.new_version }}

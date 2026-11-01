@@ -1,9 +1,14 @@
 [tool.semantic_release]
-version_variable = "version.py:__version__"
-branch = "main"
+version_variables = ["version.py:__version__"]
 major_on_zero = false
 commit_version_number = true
-commit_message = "chore(release): bump version {new_version}"
-tag_format = "v{new_version}"
-changelog_file = "CHANGELOG.md"
+commit_message = "chore(release): bump version {version}"
+tag_format = "v{version}"
 
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.master]
+match = "master"
+prerelease = false
