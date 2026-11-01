@@ -1,5 +1,4 @@
 name: Package TTD
-
 on:
   push:
     branches:
@@ -9,34 +8,34 @@ on:
 
 jobs:
   check-commit:
-    name: Check Commit Message
+    name: Check Commit Message & Calc SemVer
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
       commit_message: ${{ steps.check.outputs.commit_message }}
-      version: ${{ steps.check.outputs.version }}
+      new_version: ${{ steps.semver.outputs.new_version }}
+      current_version: ${{ steps.semver.outputs.current_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true # 允许后续提交tag/版本文件
 
       - name: Check commit message
         id: check
         run: |
           COMMIT_MSG="${{ github.event.head_commit.message }}"
           echo "Commit message: $COMMIT_MSG"
-          
-          # 检查是否以 feat/fix/chore 开头
-          if [[ "$COMMIT_MSG" =~ ^(feat|fix|chore).* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # 修复正则：支持 feat(lib): / fix(core): / chore(ci):
+          if [[ "$COMMIT_MSG" =~ ^(feat|fix|chore)(\([^)]+\))?:.* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "✅ Build triggered: commit message matches pattern or manual trigger"
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping build: commit message doesn't start with 'feat:', 'fix:' or 'chore:'"
+            echo "⏭️ Skipping build: commit message doesn't match conventional commits"
           fi
-          
-          # 保存完整的 commit message 用于 release notes
+
           echo "commit_message<<EOF" >> $GITHUB_OUTPUT
           echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -47,13 +46,29 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Get version
+      - name: Install python-semantic-release
         if: steps.check.outputs.should_build == 'true'
-        id: get_version
         run: |
-          VERSION=$(python -c "from version import __version__; print(__version__)")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          python -m pip install --upgrade pip
+          pip install python-semantic-release
+
+      - name: Calculate next semantic version
+        id: semver
+        if: steps.check.outputs.should_build == 'true'
+        run: |
+          CURRENT=$(python -c "from version import __version__; print(__version__)")
+          echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current baseline version: $CURRENT"
+
+          # 计算下一个版本，如果不需要升级输出空字符串
+          NEXT=$(semantic-release print-version --no-vcs-release 2>/dev/null || echo "")
+          echo "Calculated next version: '$NEXT'"
+
+          if [[ -n "$NEXT" && "$NEXT" != "$CURRENT" ]]; then
+            echo "new_version=$NEXT" >> $GITHUB_OUTPUT
+          else
+            echo "new_version=" >> $GITHUB_OUTPUT
+          fi
 
   build:
     name: Build on ${{ matrix.os }}
@@ -72,7 +87,6 @@ jobs:
           - os: ubuntu-latest
             artifact_name: TTD-linux
             file_pattern: '*.zip'
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -89,7 +103,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Get version
+      - name: Get current version
         id: version
         shell: bash
         run: |
@@ -124,10 +138,10 @@ jobs:
           if (Test-Path dist) {
               Get-ChildItem -Path dist -Recurse | Select-Object FullName
           }
-          
+
           Write-Host "Searching for TTD.exe..."
           $EXE_FILE = Get-ChildItem -Path dist -Filter TTD.exe -Recurse | Select-Object -First 1
-          
+
           if ($EXE_FILE) {
               Write-Host "FOUND: $($EXE_FILE.FullName)"
               $TARGET = "dist/TTD-$VERSION-windows.exe"
@@ -156,12 +170,17 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [check-commit, build]
+    # 关键条件：只有算出新版本才执行release；chore无版本变更直接跳过
+    if: needs.check-commit.outputs.new_version != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -180,40 +199,59 @@ jobs:
           echo "📁 Files to be released:"
           ls -lh release-files/
 
-      - name: Get version
-        id: version
-        shell: bash
-        run: |
-          VERSION=$(python -c "from version import __version__; print(__version__)")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Generate release notes
+      - name: Install semantic‑release
+        run: |
+          pip install python-semantic-release
+
+      - name: Run semantic‑release (update version.py, changelog, commit & tag)
+        id: semrel
+        run: |
+          semantic-release version --no-push
+          semantic-release changelog
+
+          NEW_VER="${{ needs.check-commit.outputs.new_version }}"
+          echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
+
+          git config --global user.name "github‑actions[bot]"
+          git config --global user.email "github‑actions[bot]@users.noreply.github.com"
+
+          git add version.py CHANGELOG.md
+          git commit -m "chore(release): bump version ${NEW_VER}"
+          git tag "v${NEW_VER}"
+
+          # 推送版本提交与tag回远端仓库
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "v${NEW_VER}"
+
+      - name: Generate release notes markdown
         id: release_notes
         run: |
-          COMMIT_MSG="${{ needs.check-commit.outputs.commit_message }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          
-          cat > release_notes.md << EOF         
-          ## Changes
-          ${COMMIT_MSG}
-          
-          ## 📦 Downloads
-          - **macOS**: TTD-${VERSION}-macos.dmg
-          - **Windows**: TTD-${VERSION}-windows.exe
-          - **Linux**: TTD-${VERSION}-linux.zip
-          
-          ---
-          *Auto-generated from commit: ${{ github.sha }}*
-          EOF
-          
+          NEW_VER="${{ needs.check-commit.outputs.new_version }}"
+          cat > release_notes.md << EOF
+## Changes (v${NEW_VER})
+
+Please see CHANGELOG.md for full commit history.
+
+## 📦 Downloads
+- **macOS**: TTD-${NEW_VER}-macos.dmg
+- **Windows**: TTD-${NEW_VER}-windows.exe
+- **Linux**: TTD-${NEW_VER}-linux.zip
+
+---
+*Auto‑generated release from GitHub Actions*
+EOF
           cat release_notes.md
 
-      - name: Create or Update Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: TTD v${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.check-commit.outputs.new_version }}
+          name: TTD v${{ needs.check-commit.outputs.new_version }}
           body_path: release_notes.md
           files: release-files/*
           draft: false
