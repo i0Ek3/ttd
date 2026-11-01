@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
-      commit_message: ${{ steps.check.outputs.commit_message }}
       new_version: ${{ steps.semver.outputs.new_version }}
       current_version: ${{ steps.semver.outputs.current_version }}
     steps:
@@ -20,30 +19,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true # 允许后续提交tag/版本文件
+          persist-credentials: true
 
       - name: Check commit message
         id: check
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          EVENT: ${{ github.event_name }}
         run: |
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          echo "Commit message: $COMMIT_MSG"
+          FIRST_LINE=$(printf '%s' "$COMMIT_MSG" | head -n1)
+          echo "Commit message: $FIRST_LINE"
 
-          # 发版机器人自己推送的 version bump 提交不应再触发一轮构建
-          if [[ "$COMMIT_MSG" == chore\(release\)* ]]; then
-            echo "should_build=false" >> $GITHUB_OUTPUT
+          PATTERN='^(feat|fix|perf|refactor|style|build|ci|chore)(\([^)]*\))?!?:'
+
+          # Skip the bot's own version-bump commit
+          if [[ "$FIRST_LINE" == chore\(release\)* ]]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
             echo "⏭️ Skipping: release commit pushed by the bot itself"
-          # 支持 feat(lib): / fix(core): / chore(ci):
-          elif [[ "$COMMIT_MSG" =~ ^(feat|fix|chore) ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-            echo "✅ Build triggered: commit message matches pattern or manual trigger"
+          elif [[ "$EVENT" == "workflow_dispatch" ]] || [[ "$FIRST_LINE" =~ $PATTERN ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Build triggered"
           else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Skipping build: commit message doesn't match conventional commits"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️ Skipping: commit message is not a conventional commit"
           fi
-
-          echo "commit_message<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Set up Python
         if: steps.check.outputs.should_build == 'true'
@@ -61,28 +60,31 @@ jobs:
         id: semver
         if: steps.check.outputs.should_build == 'true'
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
-          set -e  # 不再吞错：版本计算失败时让本步骤直接失败，避免静默跳过 release
+          set -e
           CURRENT=$(python -c "from version import __version__; print(__version__)")
-          echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "Current baseline version: $CURRENT"
 
-          # 新版 PSR 用 `version --print` 计算下一个版本（旧的 print-version 子命令
-          # 已废弃/移除，且 --no-vcs-release 只是 version 子命令的选项）。
-          # --print 只输出结果、不做任何修改；无版本变更时会打印当前版本，
-          # 所以与 CURRENT 比较即可判断是否需要发版。
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # 手动触发时强制 patch 升级，否则纯 chore 提交手动触发也算不出新版本
-            NEXT=$(semantic-release version --patch --print --no-commit --no-tag --no-changelog --no-vcs-release --skip-build)
-          else
-            NEXT=$(semantic-release version --print --no-commit --no-tag --no-changelog --no-vcs-release --skip-build)
+          FLAGS="--print --no-commit --no-tag --no-changelog --no-vcs-release --skip-build"
+          # Manual runs always force at least a patch bump
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            FLAGS="--patch $FLAGS"
           fi
+
+          # stdout = version number only, stderr = logs
+          NEXT=$(semantic-release version $FLAGS 2>semrel.err) || { cat semrel.err; exit 1; }
+          cat semrel.err || true
+          NEXT=$(echo "$NEXT" | tail -n1 | tr -d '[:space:]')
           echo "Calculated next version: '$NEXT'"
 
           if [[ -n "$NEXT" && "$NEXT" != "$CURRENT" ]]; then
-            echo "new_version=$NEXT" >> $GITHUB_OUTPUT
+            echo "new_version=$NEXT" >> "$GITHUB_OUTPUT"
           else
-            echo "new_version=" >> $GITHUB_OUTPUT
+            echo "new_version=" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No releasable commits since last tag -> no release will be created"
           fi
 
   build:
@@ -91,6 +93,7 @@ jobs:
     if: needs.check-commit.outputs.should_build == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -121,33 +124,18 @@ jobs:
       - name: Resolve build version
         id: version
         shell: bash
+        env:
+          NEXT: ${{ needs.check-commit.outputs.new_version }}
         run: |
-          # Use the version that the release will be tagged with, so that the app,
-          # the file names and the GitHub release all show the same number.
-          # Without a version bump (e.g. chore commits) fall back to the current one.
           CURRENT=$(python -c "from version import __version__; print(__version__)")
-          NEXT="${{ needs.check-commit.outputs.new_version }}"
           VERSION="${NEXT:-$CURRENT}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Current: $CURRENT, building version: $VERSION"
 
-          # Bake it into version.py before PyInstaller runs (shown in the window title)
-          VERSION="$VERSION" python - <<'PY'
-          import os, re, pathlib
-          version = os.environ["VERSION"]
-          path = pathlib.Path("version.py")
-          text = path.read_text(encoding="utf-8")
-          new_text, count = re.subn(
-              r"^__version__\s*=\s*['\"[^'\"]*['\"]",
-              f'__version__ = "{version}"',
-              text,
-              flags=re.M,
-          )
-          if count == 0:
-              new_text = text.rstrip("\n") + f'\n__version__ = "{version}"\n'
-          path.write_text(new_text, encoding="utf-8")
-          print(new_text)
-          PY
+          # Overwrite the whole file (no regex) so it can never end up corrupted
+          printf '# baseline version of the package\n__version__ = "%s"\n' "$VERSION" > version.py
+          cat version.py
+          python -c "from version import __version__; print('Verified:', __version__)"
 
       - name: Build with PyInstaller
         run: |
@@ -159,10 +147,18 @@ jobs:
           brew install create-dmg
           VERSION="${{ steps.version.outputs.version }}"
           codesign --force --deep --sign - dist/TTD.app
-          create-dmg             --volname "TTD $VERSION Installer"             --window-size 800 400             --icon-size 100             --icon "TTD.app" 200 190             --app-drop-link 600 185             "dist/TTD-$VERSION-macos.dmg"             "dist/TTD.app"
+          create-dmg \
+            --volname "TTD $VERSION Installer" \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "TTD.app" 200 190 \
+            --app-drop-link 600 185 \
+            "dist/TTD-$VERSION-macos.dmg" \
+            "dist/TTD.app"
 
       - name: Post-build (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
           $VERSION = "${{ steps.version.outputs.version }}"
           Write-Host "Listing dist files for verification..."
@@ -170,11 +166,8 @@ jobs:
               Get-ChildItem -Path dist -Recurse | Select-Object FullName
           }
 
-          Write-Host "Searching for TTD.exe..."
           $EXE_FILE = Get-ChildItem -Path dist -Filter TTD.exe -Recurse | Select-Object -First 1
-
           if ($EXE_FILE) {
-              Write-Host "FOUND: $($EXE_FILE.FullName)"
               $TARGET = "dist/TTD-$VERSION-windows.exe"
               Move-Item -Path $EXE_FILE.FullName -Destination $TARGET -Force
               Write-Host "SUCCESS: Moved to $TARGET"
@@ -189,7 +182,6 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           cd dist
           zip -r "TTD-$VERSION-linux.zip" TTD/
-          cd ..
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -201,7 +193,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [check-commit, build]
-    # 关键条件：只有算出新版本才执行release；chore无版本变更直接跳过
+    # Only release when a new version was calculated and every build succeeded
     if: needs.check-commit.outputs.new_version != ''
     runs-on: ubuntu-latest
     permissions:
@@ -218,16 +210,10 @@ jobs:
         with:
           path: artifacts
 
-      - name: Display structure of downloaded files
-        run: |
-          echo "📦 Downloaded artifacts:"
-          ls -R artifacts/
-
       - name: Prepare release files
         run: |
           mkdir -p release-files
           find artifacts -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.zip" \) -exec cp {} release-files/ \;
-          echo "📁 Files to be released:"
           ls -lh release-files/
 
       - name: Set up Python
@@ -236,27 +222,32 @@ jobs:
           python-version: '3.11'
 
       - name: Install semantic-release
-        run: |
-          pip install python-semantic-release
+        run: pip install python-semantic-release
 
       - name: Run semantic-release (stamp version, changelog, commit & tag locally)
-        id: semrel
+        env:
+          NEW_VER: ${{ needs.check-commit.outputs.new_version }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
         run: |
+          set -e
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # commit_version_number = true：该命令一次性完成
-          # 写入 version.py → 更新 CHANGELOG.md → 创建 release 提交 → 打 tag（均在本地）。
-          # --no-push 只做到本地为止，推送交给下面两步；
-          # --skip-build 因为本项目用 PyInstaller 打包，而非 python -m build。
-          semantic-release version --no-push --skip-build
+          FLAGS="--no-push --skip-build"
+          # Must match the calculation in check-commit
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            FLAGS="--patch $FLAGS"
+          fi
+          semantic-release version $FLAGS
 
-          NEW_VER="${{ needs.check-commit.outputs.new_version }}"
-          git push origin HEAD:${{ github.ref_name }}
+          # Make sure the tag PSR created matches what we built and named the files with
+          git rev-parse "v${NEW_VER}" >/dev/null
+
+          git push origin "HEAD:${BRANCH}"
           git push origin "v${NEW_VER}"
 
       - name: Generate release notes markdown
-        id: release_notes
         env:
           NEW_VER: ${{ needs.check-commit.outputs.new_version }}
         run: |
